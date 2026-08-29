@@ -14,9 +14,8 @@ use teloxide::{
     Bot,
 };
 use teloxide_ui::{
-    ActionRegistry, ActorPolicy, ButtonLabel, ButtonStyle, InMemoryUiStore, RenderContext,
-    Revision, RichRenderer, StalePolicy, Surface, SurfaceWorker, TableCell, Ui, UiStore, ViewId,
-    ViewRecord,
+    ActionRegistry, ActorPolicy, ButtonLabel, InMemoryUiStore, RenderContext, Revision,
+    RichRenderer, StalePolicy, Surface, SurfaceWorker, TableCell, Ui, UiStore, ViewId, ViewRecord,
 };
 
 type HandlerError = Box<dyn Error + Send + Sync>;
@@ -468,7 +467,10 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
             let label = palette.cell_label(cell_visual, light, state.board[square.index()]);
             row.push(
                 TableCell::button(label, ChessAction::Square(square.0))
-                    .style(ButtonStyle::Link)
+                    // Keep the button style unset. Telegram can then use the
+                    // table cell as the hit target and size the complete
+                    // sprite to the compact cell, which is how the reference
+                    // board avoids the link-style content gap.
                     .disabled(state.finished),
             );
         }
