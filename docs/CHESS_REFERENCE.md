@@ -65,9 +65,10 @@ composition, and surface mapping in the application layer.
 
 Every board cell is a button embedded in a Rich Message table. The button
 label is a single complete cell sprite, so the board does not depend on
-Telegram composing separate background and piece emoji. Coordinate
-gutters, turn status, move history, board flipping, undo, finish, and new-game
-controls are part of the projection. The view marks the selected piece and
+Telegram composing separate background and piece emoji. The projection order
+is board, turn status, move history, and controls, matching the reference.
+Coordinate gutters, board flipping, undo, finish, and new-game controls are
+part of the projection. The view marks the selected piece and
 legal destinations, and the server recomputes legality during the callback
 transition for both colors. Empty legal destinations use the green cell-state
 emoji; occupied capture targets use the red cell-state sprite. A stale or

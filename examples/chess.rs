@@ -425,15 +425,6 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
             None => format!("{turn} · select a piece"),
         }
     };
-    let mut ui = Ui::column().push(Ui::blockquote(status));
-    if !state.moves.is_empty() {
-        let moves = state.moves.join("  ");
-        ui = ui.push(Ui::details(
-            format!("Moves · {moves}"),
-            [Ui::paragraph(moves)],
-        ));
-    }
-
     let files: Vec<i8> = if state.flipped {
         (0..8).rev().collect()
     } else {
@@ -492,7 +483,16 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
     );
     board = board.row(coordinate_row);
 
-    ui = ui.push(board);
+    // Match the reference projection order: the board is the primary visual,
+    // followed by turn status, move history, and controls.
+    let mut ui = Ui::column().push(board).push(Ui::blockquote(status));
+    if !state.moves.is_empty() {
+        let moves = state.moves.join("  ");
+        ui = ui.push(Ui::details(
+            format!("Moves · {moves}"),
+            [Ui::paragraph(moves)],
+        ));
+    }
     ui = ui.push(
         Ui::button_row()
             .push(Ui::button("⟳ Flip board", ChessAction::FlipBoard))
@@ -501,7 +501,7 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
     if state.finished {
         ui.push(Ui::button_row().push(Ui::button("New Game", ChessAction::Reset)))
     } else {
-        ui.push(Ui::button_row().push(Ui::button("Finish Game", ChessAction::Finish)))
+        ui.push(Ui::button_row().push(Ui::button("⊗ Finish Game", ChessAction::Finish)))
     }
 }
 
