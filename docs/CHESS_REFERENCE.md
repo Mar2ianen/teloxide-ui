@@ -74,10 +74,12 @@ ephemeral player surface. `Flip board` changes only the surface that produced
 the callback, so White and Black may keep opposite orientations without
 putting presentation state into `ChessState`.
 
-The two-player status line uses the current player's Telegram username (or
-their Telegram name when no username is available), for example
-`@alice to move`. Labels are bounded before rendering; if no player identity is
-available, the status falls back to `White to move` or `Black to move`.
+The two-player status line uses the current player's Telegram profile name
+(`first_name` plus `last_name`), for example `Alice Smith to move`; it does not
+use the `@username` handle. Labels are bounded before rendering; if no player
+identity is available, the status falls back to `White to move` or
+`Black to move`. The piece labels keep the emoji fallbacks associated with the
+published custom-emoji set so Telegram accepts the Rich Message payload.
 
 The engine path is configured with `STOCKFISH_PATH`. Search uses
 `STOCKFISH_MOVETIME_MS` (100–5000 ms, default 350) unless `STOCKFISH_DEPTH`

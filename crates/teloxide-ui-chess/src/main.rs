@@ -674,7 +674,7 @@ fn callback_surface(query: &CallbackQuery) -> Option<Surface> {
 const MAX_PLAYER_LABEL_CHARS: usize = 24;
 
 fn player_label(user: &User) -> String {
-    let label = user.mention().unwrap_or_else(|| user.full_name());
+    let label = user.full_name();
     let mut chars = label.chars();
     let mut bounded: String = chars.by_ref().take(MAX_PLAYER_LABEL_CHARS).collect();
     if chars.next().is_some() {
@@ -1371,19 +1371,19 @@ mod tests {
     #[test]
     fn two_player_status_uses_the_player_label_for_the_current_turn() {
         let mut state = ChessState::new(Some(UserId(10)));
-        state.white_player_label = Some("@white_player".to_owned());
+        state.white_player_label = Some("White Player".to_owned());
         let ui = view(&state, &reference_emoji_palette(), false);
         assert_eq!(
             ui.nodes[1],
-            UiNode::Blockquote("@white_player to move".to_owned())
+            UiNode::Blockquote("White Player to move".to_owned())
         );
 
         let mut state = play(state, "e2", "e4");
-        state.black_player_label = Some("@black_player".to_owned());
+        state.black_player_label = Some("Black Player".to_owned());
         let ui = view(&state, &reference_emoji_palette(), false);
         assert_eq!(
             ui.nodes[1],
-            UiNode::Blockquote("@black_player to move".to_owned())
+            UiNode::Blockquote("Black Player to move".to_owned())
         );
     }
 
