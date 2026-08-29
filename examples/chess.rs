@@ -434,7 +434,9 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
     } else {
         (0..8).rev().collect()
     };
-    let mut board = Ui::table().bordered(false).compact(true);
+    // Keep the natural custom-emoji cell size. Compact tables shrink the
+    // reference tiles and leave oversized gaps between them on Telegram.
+    let mut board = Ui::table().bordered(false).compact(false);
     let mut coordinate_row = vec![TableCell::empty()];
     coordinate_row.extend(
         files
@@ -473,6 +475,7 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
                     .disabled(state.finished),
             );
         }
+        row.push(TableCell::text((rank + 1).to_string()));
         board = board.row(row);
     }
     let mut coordinate_row = vec![TableCell::empty()];

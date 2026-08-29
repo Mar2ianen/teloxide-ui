@@ -67,8 +67,9 @@ Every board cell is a button embedded in a Rich Message table. Its label is a
 single complete cell sprite, so empty cells remain valid emoji buttons and the
 board does not depend on Telegram composing separate background and piece
 emoji. The buttons use `link` style to remove native rounded button chrome;
-the compact table supplies the small consistent cell gaps visible in the
-reference. The projection order is board, turn status, move history, and
+the ordinary (non-compact) table preserves the natural tile size. Rank labels
+are rendered on both sides of the board, and file labels are rendered above
+and below it. The projection order is board, turn status, move history, and
 controls, matching the reference.
 Coordinate gutters, board flipping, undo, finish, and new-game controls are
 part of the projection. The view marks the selected piece and
