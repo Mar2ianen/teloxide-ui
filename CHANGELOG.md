@@ -22,6 +22,9 @@ the first explicitly stabilized release.
 - `SurfaceWorker` with one serial/latest-wins outbound lane per surface.
 - Chess reference application with server-side board state, opaque callbacks,
   immediate ACK, CAS transitions, and same-message Rich projection.
+- Semantic `ButtonLabel` values with Rich Message custom-emoji rendering; the
+  chess example uses the captured empty-cell palette and falls back to Unicode
+  symbols for pieces.
 - Pinned the teloxide dependency to fork commit `67432b14`, where `outbound`
   is an explicit opt-in feature.
 

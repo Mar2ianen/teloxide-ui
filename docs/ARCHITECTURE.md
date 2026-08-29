@@ -185,6 +185,11 @@ InputRichMessage
 A later legacy renderer may produce plain text plus
 `InlineKeyboardMarkup`.
 
+Button labels remain semantic until this boundary. `ButtonLabel::Plain` is
+rendered as text, while `ButtonLabel::CustomEmoji` becomes a Telegram
+`RichTextObject::CustomEmoji` with its explicit alternative text. The UI crate
+does not expose Telegram's wire object as the application model.
+
 ### Renderer invariant
 
 Application semantics are expressed as the complete desired representation.

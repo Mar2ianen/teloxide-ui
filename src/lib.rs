@@ -30,7 +30,7 @@ pub use action::{
 pub use component::{Component, ViewCx};
 pub use effect::Effect;
 pub use ids::{Revision, ViewId};
-pub use node::{Button, ButtonRow, ButtonStyle, Ui, UiNode};
+pub use node::{Button, ButtonLabel, ButtonRow, ButtonStyle, Ui, UiNode};
 pub use render::{RenderContext, RenderError, RenderedRichMessage, RichRenderer};
 pub use store::{InMemoryUiStore, StoreError, UiStore, ViewRecord};
 pub use surface::{ProjectionError, ProjectionReceipt, QueueRequest, Surface, SurfaceWorker};

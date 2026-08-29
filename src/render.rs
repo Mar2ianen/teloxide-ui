@@ -2,10 +2,13 @@ use std::time::Duration;
 
 use teloxide::types::{
     InputRichBlock, InputRichBlockButtons, InputRichBlockParagraph, InputRichBlockSectionHeading,
-    InputRichMessage, RichMessageButton, RichText,
+    InputRichMessage, RichMessageButton, RichText, RichTextCustomEmoji, RichTextObject,
 };
 
-use crate::{ActionRegistry, ActionToken, ActorPolicy, Revision, StalePolicy, Ui, UiNode, ViewId};
+use crate::{
+    ActionRegistry, ActionToken, ActorPolicy, ButtonLabel, Revision, StalePolicy, Ui, UiNode,
+    ViewId,
+};
 
 /// Context required to render stateful buttons for one view revision.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -69,6 +72,8 @@ pub enum RenderError {
     EmptyButtonRow,
     /// A button label is empty.
     EmptyButtonLabel,
+    /// A custom-emoji label is missing its identifier or fallback text.
+    InvalidCustomEmoji,
 }
 
 impl std::fmt::Display for RenderError {
@@ -77,6 +82,9 @@ impl std::fmt::Display for RenderError {
             Self::EmptyUi => formatter.write_str("UI contains no renderable nodes"),
             Self::EmptyButtonRow => formatter.write_str("button row contains no buttons"),
             Self::EmptyButtonLabel => formatter.write_str("button label cannot be empty"),
+            Self::InvalidCustomEmoji => {
+                formatter.write_str("custom emoji needs an id and alternative text")
+            }
         }
     }
 }
@@ -165,7 +173,9 @@ impl<A> RichRenderer<A> {
                         .iter()
                         .map(|button| {
                             if button.disabled {
-                                return RichMessageButton::disabled(button.text.as_str());
+                                return RichMessageButton::disabled(render_button_label(
+                                    &button.text,
+                                ));
                             }
                             let token = self.registry.register_with_ttl(
                                 context.view_id,
@@ -177,8 +187,10 @@ impl<A> RichRenderer<A> {
                             );
                             action_tokens.push(token.clone());
                             let style = button.style;
-                            let rendered =
-                                RichMessageButton::callback(button.text.as_str(), token.as_str());
+                            let rendered = RichMessageButton::callback(
+                                render_button_label(&button.text),
+                                token.as_str(),
+                            );
                             match style {
                                 crate::ButtonStyle::Default => rendered,
                                 style => rendered.style(style.as_str()),
@@ -210,14 +222,38 @@ fn validate_nodes<A>(nodes: &[UiNode<A>]) -> Result<(), RenderError> {
                 if row.buttons.is_empty() {
                     return Err(RenderError::EmptyButtonRow);
                 }
-                if row.buttons.iter().any(|button| button.text.is_empty()) {
-                    return Err(RenderError::EmptyButtonLabel);
+                for button in &row.buttons {
+                    match &button.text {
+                        ButtonLabel::Plain(text) if text.is_empty() => {
+                            return Err(RenderError::EmptyButtonLabel);
+                        }
+                        ButtonLabel::CustomEmoji {
+                            custom_emoji_id,
+                            alternative_text,
+                        } if custom_emoji_id.is_empty() || alternative_text.is_empty() => {
+                            return Err(RenderError::InvalidCustomEmoji);
+                        }
+                        _ => {}
+                    }
                 }
             }
             UiNode::Fragment(children) => validate_nodes(children)?,
         }
     }
     Ok(())
+}
+
+fn render_button_label(label: &ButtonLabel) -> RichText {
+    match label {
+        ButtonLabel::Plain(text) => RichText::from(text.as_str()),
+        ButtonLabel::CustomEmoji {
+            custom_emoji_id,
+            alternative_text,
+        } => RichText::Object(RichTextObject::CustomEmoji(RichTextCustomEmoji {
+            custom_emoji_id: custom_emoji_id.clone(),
+            alternative_text: alternative_text.clone(),
+        })),
+    }
 }
 
 impl crate::ButtonStyle {
@@ -236,8 +272,12 @@ impl crate::ButtonStyle {
 mod tests {
     use std::time::Duration;
 
+    use teloxide::types::{RichText, RichTextObject};
+
     use super::{RenderContext, RenderError, RichRenderer};
-    use crate::{ActionRegistry, ActorPolicy, ButtonStyle, Revision, StalePolicy, Ui, ViewId};
+    use crate::{
+        ActionRegistry, ActorPolicy, ButtonLabel, ButtonStyle, Revision, StalePolicy, Ui, ViewId,
+    };
 
     #[derive(Clone, Debug, PartialEq)]
     enum Action {
@@ -278,5 +318,26 @@ mod tests {
             renderer.render(&ui, RenderContext::new(ViewId::new(1), Revision::INITIAL)),
             Err(RenderError::EmptyButtonRow)
         );
+    }
+
+    #[test]
+    fn renderer_preserves_custom_emoji_button_labels() {
+        let renderer = RichRenderer::new(ActionRegistry::<Action>::new());
+        let ui = Ui::column().push(Ui::button_row().push(Ui::button(
+            ButtonLabel::custom_emoji("emoji-id", "♔"),
+            Action::Increment,
+        )));
+        let rendered = renderer
+            .render(&ui, RenderContext::new(ViewId::new(1), Revision::INITIAL))
+            .unwrap();
+        let blocks = rendered.rich_message.blocks_ref().unwrap();
+        let teloxide::types::InputRichBlock::Buttons(buttons) = &blocks[0] else {
+            panic!("expected button block");
+        };
+        let RichText::Object(RichTextObject::CustomEmoji(emoji)) = &buttons.buttons[0].text else {
+            panic!("expected custom emoji label");
+        };
+        assert_eq!(emoji.custom_emoji_id, "emoji-id");
+        assert_eq!(emoji.alternative_text, "♔");
     }
 }

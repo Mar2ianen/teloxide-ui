@@ -40,7 +40,7 @@ impl<A> Ui<A> {
     }
 
     #[must_use]
-    pub fn button(text: impl Into<String>, action: A) -> Button<A> {
+    pub fn button(text: impl Into<ButtonLabel>, action: A) -> Button<A> {
         Button::new(text, action)
     }
 
@@ -94,7 +94,7 @@ impl<A> From<ButtonRow<A>> for UiNode<A> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Button<A> {
-    pub text: String,
+    pub text: ButtonLabel,
     pub action: A,
     pub style: ButtonStyle,
     pub disabled: bool,
@@ -102,7 +102,7 @@ pub struct Button<A> {
 
 impl<A> Button<A> {
     #[must_use]
-    pub fn new(text: impl Into<String>, action: A) -> Self {
+    pub fn new(text: impl Into<ButtonLabel>, action: A) -> Self {
         Self {
             text: text.into(),
             action,
@@ -121,6 +121,60 @@ impl<A> Button<A> {
     pub const fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
         self
+    }
+}
+
+/// Semantic content for a button label.
+///
+/// `CustomEmoji` keeps the Telegram-specific identifier at the rendering
+/// boundary while allowing applications to use a text fallback when the
+/// target surface does not support custom emoji.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ButtonLabel {
+    /// Ordinary text rendered as a rich-text string.
+    Plain(String),
+    /// A Telegram custom emoji and its required accessibility fallback.
+    CustomEmoji {
+        custom_emoji_id: String,
+        alternative_text: String,
+    },
+}
+
+impl ButtonLabel {
+    /// Creates a custom-emoji label.
+    #[must_use]
+    pub fn custom_emoji(
+        custom_emoji_id: impl Into<String>,
+        alternative_text: impl Into<String>,
+    ) -> Self {
+        Self::CustomEmoji {
+            custom_emoji_id: custom_emoji_id.into(),
+            alternative_text: alternative_text.into(),
+        }
+    }
+
+    /// Returns the visible fallback text used for validation and degraded
+    /// clients.
+    #[must_use]
+    pub fn alternative_text(&self) -> &str {
+        match self {
+            Self::Plain(text) => text,
+            Self::CustomEmoji {
+                alternative_text, ..
+            } => alternative_text,
+        }
+    }
+}
+
+impl From<String> for ButtonLabel {
+    fn from(value: String) -> Self {
+        Self::Plain(value)
+    }
+}
+
+impl From<&str> for ButtonLabel {
+    fn from(value: &str) -> Self {
+        Self::Plain(value.to_owned())
     }
 }
 

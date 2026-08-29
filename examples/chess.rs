@@ -14,13 +14,37 @@ use teloxide::{
     Bot,
 };
 use teloxide_ui::{
-    ActionRegistry, ActorPolicy, ButtonStyle, InMemoryUiStore, RenderContext, Revision,
-    RichRenderer, StalePolicy, Surface, SurfaceWorker, Ui, UiStore, ViewId, ViewRecord,
+    ActionRegistry, ActorPolicy, ButtonLabel, ButtonStyle, InMemoryUiStore, RenderContext,
+    Revision, RichRenderer, StalePolicy, Surface, SurfaceWorker, Ui, UiStore, ViewId, ViewRecord,
 };
 
 type HandlerError = Box<dyn Error + Send + Sync>;
 
 const ACTION_TTL: Duration = Duration::from_secs(30 * 60);
+
+#[derive(Clone, Default)]
+struct ChessEmojiPalette {
+    pieces: HashMap<Piece, ButtonLabel>,
+    cells: [Option<ButtonLabel>; 2],
+}
+
+impl ChessEmojiPalette {
+    fn cell_label(&self, ordinal: usize) -> Option<ButtonLabel> {
+        self.cells[ordinal % self.cells.len()].clone()
+    }
+}
+
+fn reference_emoji_palette() -> ChessEmojiPalette {
+    // Captured once from the supplied empty Rich Message board. The two
+    // labels alternate in the same order as the 8x8 button rows.
+    ChessEmojiPalette {
+        pieces: HashMap::new(),
+        cells: [
+            Some(ButtonLabel::custom_emoji("5877410604225924969", "🔄")),
+            Some(ButtonLabel::custom_emoji("5843799474362652262", "🔄")),
+        ],
+    }
+}
 
 #[derive(Clone)]
 struct ChessApp {
@@ -29,6 +53,7 @@ struct ChessApp {
     store: InMemoryUiStore<ChessState>,
     worker: SurfaceWorker<Bot>,
     views: Arc<Mutex<HashMap<Surface, ViewId>>>,
+    emoji_palette: Arc<Mutex<ChessEmojiPalette>>,
 }
 
 impl ChessApp {
@@ -41,13 +66,22 @@ impl ChessApp {
             store: InMemoryUiStore::new(),
             worker: SurfaceWorker::new(bot, queue),
             views: Arc::new(Mutex::new(HashMap::new())),
+            emoji_palette: Arc::new(Mutex::new(reference_emoji_palette())),
         })
+    }
+
+    fn emoji_palette(&self) -> ChessEmojiPalette {
+        self.emoji_palette
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     async fn start_game(&self, message: &Message) -> Result<(), HandlerError> {
         let view_id = ViewId::fresh();
         let state = ChessState::new(message.from.as_ref().map(|user| user.id));
-        let rendered = render_game(&self.registry, view_id, Revision::INITIAL, &state)?;
+        let palette = self.emoji_palette();
+        let rendered = render_game(&self.registry, view_id, Revision::INITIAL, &state, &palette)?;
 
         // The initial send must use the same shared outbound queue as later
         // edits. The view/store record is inserted only after Telegram gives
@@ -125,7 +159,14 @@ impl ChessApp {
             Ok(record) => record,
             Err(_) => return Ok(()),
         };
-        let rendered = render_game(&self.registry, updated.id, updated.revision, &updated.state)?;
+        let palette = self.emoji_palette();
+        let rendered = render_game(
+            &self.registry,
+            updated.id,
+            updated.revision,
+            &updated.state,
+            &palette,
+        )?;
         self.worker
             .project(updated.surface, updated.revision, rendered.rich_message)
             .await?;
@@ -172,10 +213,11 @@ fn render_game(
     view_id: ViewId,
     revision: Revision,
     state: &ChessState,
+    palette: &ChessEmojiPalette,
 ) -> Result<teloxide_ui::RenderedRichMessage, teloxide_ui::RenderError> {
     let renderer = RichRenderer::new(registry.clone()).action_ttl(Some(ACTION_TTL));
     renderer.render(
-        &view(state),
+        &view(state, palette),
         RenderContext::new(view_id, revision)
             .actor(actor_policy(state.owner))
             .stale_policy(StalePolicy::Reject),
@@ -186,7 +228,7 @@ fn actor_policy(owner: Option<UserId>) -> ActorPolicy {
     owner.map_or(ActorPolicy::Any, ActorPolicy::User)
 }
 
-fn view(state: &ChessState) -> Ui<ChessAction> {
+fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
     let turn = state.turn.label();
     let status = match state.selected {
         Some(square) => format!(
@@ -199,11 +241,11 @@ fn view(state: &ChessState) -> Ui<ChessAction> {
         .push(Ui::heading("♟ Rich Message Chess"))
         .push(Ui::paragraph(status));
 
+    let mut ordinal = 0;
     for rank in (0..8).rev() {
         let mut row = Ui::button_row();
         for file in 0..8 {
             let square = Square::new(file, rank).expect("board coordinate");
-            let enabled = button_enabled(state, square);
             let style = if state.selected == Some(square) {
                 ButtonStyle::Primary
             } else if state
@@ -214,14 +256,22 @@ fn view(state: &ChessState) -> Ui<ChessAction> {
             } else {
                 ButtonStyle::Default
             };
-            row = row.push(
-                Ui::button(
-                    state.board[square.index()].map_or_else(|| "·".to_owned(), Piece::label),
-                    ChessAction::Square(square.0),
-                )
-                .style(style)
-                .disabled(!enabled),
+            let label = state.board[square.index()].map_or_else(
+                || {
+                    palette
+                        .cell_label(ordinal)
+                        .unwrap_or_else(|| ButtonLabel::from("·"))
+                },
+                |piece| {
+                    palette
+                        .pieces
+                        .get(&piece)
+                        .cloned()
+                        .unwrap_or_else(|| ButtonLabel::from(piece.label()))
+                },
             );
+            row = row.push(Ui::button(label, ChessAction::Square(square.0)).style(style));
+            ordinal += 1;
         }
         ui = ui.push(row);
     }
@@ -230,17 +280,6 @@ fn view(state: &ChessState) -> Ui<ChessAction> {
         Ui::button_row()
             .push(Ui::button("New game", ChessAction::Reset).style(ButtonStyle::Danger)),
     )
-}
-
-fn button_enabled(state: &ChessState, square: Square) -> bool {
-    match state.selected {
-        Some(from) => {
-            square == from
-                || state.board[square.index()].is_some_and(|piece| piece.color == state.turn)
-                || legal_move(&state.board, from, square)
-        }
-        None => state.board[square.index()].is_some_and(|piece| piece.color == state.turn),
-    }
 }
 
 fn transition(mut state: ChessState, action: ChessAction) -> Result<ChessState, &'static str> {
@@ -255,6 +294,8 @@ fn transition(mut state: ChessState, action: ChessAction) -> Result<ChessState, 
                 None => {
                     if state.board[square.index()].is_some_and(|piece| piece.color == state.turn) {
                         state.selected = Some(square);
+                    } else {
+                        return Err("not your piece");
                     }
                 }
                 Some(from) if from == square => state.selected = None,
@@ -396,7 +437,7 @@ impl ChessState {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct Piece {
     color: Color,
     kind: Kind,
@@ -409,23 +450,23 @@ impl Piece {
 
     fn symbol(self) -> &'static str {
         match (self.color, self.kind) {
-            (Color::White, Kind::Pawn) => "♙",
-            (Color::White, Kind::Knight) => "♘",
-            (Color::White, Kind::Bishop) => "♗",
-            (Color::White, Kind::Rook) => "♖",
-            (Color::White, Kind::Queen) => "♕",
-            (Color::White, Kind::King) => "♔",
-            (Color::Black, Kind::Pawn) => "♟",
-            (Color::Black, Kind::Knight) => "♞",
-            (Color::Black, Kind::Bishop) => "♝",
-            (Color::Black, Kind::Rook) => "♜",
-            (Color::Black, Kind::Queen) => "♛",
-            (Color::Black, Kind::King) => "♚",
+            (Color::White, Kind::Pawn) => "♙\u{fe0f}",
+            (Color::White, Kind::Knight) => "♘\u{fe0f}",
+            (Color::White, Kind::Bishop) => "♗\u{fe0f}",
+            (Color::White, Kind::Rook) => "♖\u{fe0f}",
+            (Color::White, Kind::Queen) => "♕\u{fe0f}",
+            (Color::White, Kind::King) => "♔\u{fe0f}",
+            (Color::Black, Kind::Pawn) => "♟\u{fe0f}",
+            (Color::Black, Kind::Knight) => "♞\u{fe0f}",
+            (Color::Black, Kind::Bishop) => "♝\u{fe0f}",
+            (Color::Black, Kind::Rook) => "♜\u{fe0f}",
+            (Color::Black, Kind::Queen) => "♛\u{fe0f}",
+            (Color::Black, Kind::King) => "♚\u{fe0f}",
         }
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 enum Color {
     White,
     Black,
@@ -447,7 +488,7 @@ impl Color {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 enum Kind {
     Pawn,
     Knight,
@@ -529,6 +570,39 @@ mod tests {
                 kind: Kind::Pawn,
             })
         );
+    }
+
+    #[test]
+    fn black_can_select_and_move_after_white_turn() {
+        let state = ChessState::new(None);
+        let state = transition(state, ChessAction::Square(Square::new(4, 1).unwrap().0))
+            .and_then(|state| transition(state, ChessAction::Square(Square::new(4, 3).unwrap().0)))
+            .unwrap();
+        let moved = transition(state, ChessAction::Square(Square::new(4, 6).unwrap().0))
+            .and_then(|state| transition(state, ChessAction::Square(Square::new(4, 4).unwrap().0)))
+            .unwrap();
+        assert_eq!(moved.turn, Color::White);
+        assert_eq!(
+            moved.board[Square::new(4, 4).unwrap().index()],
+            Some(Piece {
+                color: Color::Black,
+                kind: Kind::Pawn,
+            })
+        );
+    }
+
+    #[test]
+    fn every_board_cell_has_a_server_action() {
+        let registry = ActionRegistry::new();
+        let rendered = render_game(
+            &registry,
+            ViewId::new(1),
+            Revision::INITIAL,
+            &ChessState::new(None),
+            &reference_emoji_palette(),
+        )
+        .unwrap();
+        assert_eq!(rendered.action_tokens.len(), 65);
     }
 
     #[test]

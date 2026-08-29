@@ -74,6 +74,7 @@ This crate aims to provide the missing application layer:
 - latest-wins render coalescing;
 - optional persistence and durable rendering;
 - ephemeral per-user UI;
+- semantic button labels with Telegram custom-emoji support;
 - integration with teloxide's scheduler and Drafter without duplicating them.
 
 The current MVP already provides the semantic `Ui` builder, versioned opaque
@@ -142,6 +143,12 @@ render: text, paragraphs, headings, button rows, tables, details, media, and
 similar primitives.
 
 It is intentionally not pixel-layout.
+
+Button labels are semantic too. Plain strings use `ButtonLabel::Plain`; a
+Telegram custom emoji can be passed as
+`ButtonLabel::custom_emoji(id, alternative_text)`. The renderer emits the Rich
+Message object and keeps the fallback text beside it for clients or surfaces
+that cannot show the custom emoji.
 
 ### `Surface`
 
@@ -250,7 +257,10 @@ The first application on top of the kit is [`examples/chess.rs`](examples/chess.
 It renders an 8×8 board as Rich Message button rows, stores the board on the
 server, acknowledges callbacks before projection, and edits one Telegram
 message through `SurfaceWorker`. The complete runbook and deliberate MVP rule
-scope are in [`docs/CHESS_REFERENCE.md`](docs/CHESS_REFERENCE.md).
+scope are in [`docs/CHESS_REFERENCE.md`](docs/CHESS_REFERENCE.md). Every cell
+is an action target; legal moves are calculated from the authoritative board on
+the server, and the empty-cell custom emoji are taken from the supplied Rich
+Message reference.
 
 ## Relationship with teloxide
 
