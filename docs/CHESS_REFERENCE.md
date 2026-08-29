@@ -5,18 +5,20 @@
 emoji palette, and the Telegram bot entry point do not belong to the UI
 runtime.
 It reproduces the important interaction model of Telegram's Rich Message
-chess demonstration: one message contains the board, every enabled cell is a
-native Rich Message button, a click arrives as a callback, and the bot edits
-the same message with the next complete representation. The example uses a
-compact, non-striped Rich Message table. Light board cells use Telegram's
-native header-cell background, while dark cells use the table background;
-transparent flat custom emoji from
-[`teloxide_ui_chess_by_testteloxideui_bot`](https://t.me/addemoji/teloxide_ui_chess_by_testteloxideui_bot)
-provide pieces and state markers. Because the background belongs to the
-table cells rather than to inline full-cell emoji, adjacent cells touch like
-the reference. Buttons are used for occupied or actionable cells and resolve
-through the server-side action registry. Custom emoji labels retain valid
-Unicode fallbacks for clients that cannot display the set.
+chess demonstration: one message contains the board, every cell is a native
+Rich Message button, a click arrives as a callback, and the bot edits the same
+message with the next complete representation. The example uses a compact,
+non-striped Rich Message table. Each board cell is an interactive table cell
+using a transparent overlay from
+[`teloxide_ui_chess_native_v2_by_testteloxideui_bot`](https://t.me/addemoji/teloxide_ui_chess_native_v2_by_testteloxideui_bot).
+Telegram's native table background supplies the checkerboard: light squares
+are native header cells and dark squares are ordinary cells, so adjacent
+squares remain flush. Selection borders and legal/capture markers are
+generated locally; ImageGen is used only for the transparent 2D piece source
+sheet in [`assets/chess-emoji-native/`](../assets/chess-emoji-native/).
+Because empty and occupied cells use the same transparent overlay geometry, the
+board does not grow or jump when a piece is selected. Custom emoji labels
+retain valid Unicode fallbacks for clients that cannot display the set.
 
 The reference follows this flow:
 
@@ -71,14 +73,15 @@ documentation](https://core.telegram.org/bots/api). The reference app keeps
 the transport adapter in teloxide and keeps game state, action policy, render
 composition, and surface mapping in the application layer.
 
-The board is a compact, non-striped Rich Message table. The eight board rows
-and eight board columns use native header-cell backgrounds for light squares;
-dark squares are ordinary cells. This is the important spacing detail from
-the reference: the checkerboard is made from adjacent table cells, not from
-64 inline full-cell emoji buttons. Rank labels are rendered on the left and
-file labels above and below it, matching the current compact projection. The
-projection order is board, turn status, move history, and controls, matching the
-reference.
+The board is a compact, non-striped Rich Message table. Its light squares use
+Telegram's native header background and its dark squares use the ordinary
+table background, matching the reference's tight square grid without inline
+background sprites. Transparent 100×100 overlays keep cell metrics stable.
+Rank labels are rendered on the left and file labels above and below it,
+matching the current compact projection. The
+projection order is board, turn status, move history, and controls, matching
+the reference. All 64 cells keep a transparent button label even when empty;
+only the server-side action semantics decide whether a click is a legal move.
 Coordinate gutters, board flipping, undo, finish, and new-game controls are
 part of the projection. The view marks the selected piece and
 legal destinations, and the server recomputes legality during the callback

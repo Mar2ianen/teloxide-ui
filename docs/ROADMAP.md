@@ -43,14 +43,14 @@ surface.
 - [x] chess reference application in `crates/teloxide-ui-chess`
 
 The chess board is the first table primitive: it uses a compact, non-striped
-Rich Message table with native header-cell backgrounds for light squares and
-ordinary table backgrounds for dark squares. Transparent flat custom emoji
-provide pieces and move markers, while buttons remain available for occupied
-or actionable cells. Keeping the checkerboard in the table cells is what
-makes adjacent cells touch like the reference; full-cell emoji remain an
-alternate experiment. The board includes file labels above and below and a
-left rank gutter, while the broader table component API (spanning, captions,
-and reusable table components) remains Phase 4 work.
+Rich Message table with Telegram's native checkerboard background and one
+transparent 100×100 overlay for every square. Light cells use native header
+backgrounds; pieces and state markers are locally composited transparent
+overlays, with ImageGen limited to the flat piece source. Keeping all 64 cells
+as equal-sized labels prevents selection from changing row metrics. The board
+includes file labels above and below and a left rank gutter, while the broader
+table component API (spanning, captions, and reusable table components)
+remains Phase 4 work.
 
 Phase 1 exit condition: rapid concurrent chess clicks cannot produce an older
 visible board after a newer committed state. The current worker proves the

@@ -30,36 +30,33 @@ const VISIBLE_MOVE_COUNT: usize = 2;
 
 #[derive(Clone)]
 struct ChessEmojiPalette {
-    ids: [&'static str; 104],
-    pieces: HashMap<Piece, ButtonLabel>,
-    cells: [[ButtonLabel; 2]; 4],
+    ids: Vec<&'static str>,
 }
 
 impl ChessEmojiPalette {
-    fn cell_label(
-        &self,
-        visual: CellVisual,
-        light: bool,
-        piece: Option<Piece>,
-    ) -> Option<ButtonLabel> {
-        if let Some(piece) = piece {
-            if matches!(visual, CellVisual::Base | CellVisual::Legal) {
-                return Some(self.pieces.get(&piece)?.clone());
-            }
-
-            let index = visual.index() * 26 + usize::from(light) * 13 + piece_index(Some(piece));
-            let fallback = if piece.color == Color::White {
-                "⚪"
-            } else {
-                "⚫"
-            };
-            return Some(ButtonLabel::custom_emoji(self.ids[index], fallback));
-        }
-
-        if visual == CellVisual::Base {
-            return None;
-        }
-        Some(self.cells[visual.index()][usize::from(light)].clone())
+    fn cell_label(&self, visual: CellVisual, piece: Option<Piece>) -> ButtonLabel {
+        let index = visual.index() * 13 + piece_index(piece);
+        let fallback = match (visual, piece) {
+            (CellVisual::Legal, None) => "🟢",
+            (CellVisual::Capture, None) => "🔴",
+            (CellVisual::Selected, None) => "🟨",
+            (_, None) => "▫️",
+            (
+                _,
+                Some(Piece {
+                    color: Color::White,
+                    ..
+                }),
+            ) => "⚪",
+            (
+                _,
+                Some(Piece {
+                    color: Color::Black,
+                    ..
+                }),
+            ) => "⚫",
+        };
+        ButtonLabel::custom_emoji(self.ids[index], fallback)
     }
 }
 
@@ -137,222 +134,22 @@ const fn piece_index(piece: Option<Piece>) -> usize {
 }
 
 fn reference_emoji_palette() -> ChessEmojiPalette {
-    // The v2 entries below are the alternate complete-cell sprite palette.
-    // The active board uses the transparent piece/marker entries plus native
-    // table-cell backgrounds, because inline full-cell sprites leave gaps.
-    // Generated and uploaded as teloxide_ui_chess_v2_by_testteloxideui_bot.
-    ChessEmojiPalette {
-        ids: [
-            "5229161470729693238",
-            "5231311277954999194",
-            "5228800109361276788",
-            "5231006068989007362",
-            "5229019968737158946",
-            "5228781984599288321",
-            "5228969623130511052",
-            "5230945458410526285",
-            "5231362194792292292",
-            "5229189899118224586",
-            "5231421688679275409",
-            "5228702149747191179",
-            "5231233672190924875",
-            "5229129546237785357",
-            "5231047300675050789",
-            "5230982064416791232",
-            "5230957922405621415",
-            "5231139212975185691",
-            "5229106443608694315",
-            "5228852366228371642",
-            "5231347914026032278",
-            "5228880133191932918",
-            "5229228759982320480",
-            "5228701535566867140",
-            "5231367662285656844",
-            "5228938622056575565",
-            "5231051213390256484",
-            "5229225117850049453",
-            "5229040533040568540",
-            "5231490936436989652",
-            "5228765814047416100",
-            "5229158812144936775",
-            "5231221474483804648",
-            "5230945174942683968",
-            "5228782998211569059",
-            "5231451461392571239",
-            "5228894044591008638",
-            "5231042413002266815",
-            "5228909884430398034",
-            "5229122562620958283",
-            "5231362461080262304",
-            "5231032036361281257",
-            "5228949385244615071",
-            "5231256658855895225",
-            "5231063548536330452",
-            "5229217159275649996",
-            "5231146200886975272",
-            "5228922515929210250",
-            "5229014436819280801",
-            "5229074622196001036",
-            "5231373859923468346",
-            "5228684952698135776",
-            "5228819818966198063",
-            "5228802596147342783",
-            "5229217743391205832",
-            "5231220971972631305",
-            "5231233955658767870",
-            "5228960320231350704",
-            "5231291740148766232",
-            "5229129168280659855",
-            "5230994150454763468",
-            "5231486727369039517",
-            "5229167200216067287",
-            "5231436338812725055",
-            "5229212417631757621",
-            "5231143129985359909",
-            "5229040520155673146",
-            "5231035854587208641",
-            "5231289334967079902",
-            "5228980811520320114",
-            "5231463135113683876",
-            "5229080991632497477",
-            "5229046679138771688",
-            "5231387097012689582",
-            "5231441226485504882",
-            "5229135937149114764",
-            "5229101229518398261",
-            "5228812504636891094",
-            "5231032294059318069",
-            "5231419528310727491",
-            "5228991231110982190",
-            "5231430454707525269",
-            "5231105115229823089",
-            "5229198308664192757",
-            "5231175857636154955",
-            "5229083109051381946",
-            "5229026565806928281",
-            "5228870452335653250",
-            "5231243898508058182",
-            "5228945975040589382",
-            "5231427701633487022",
-            "5231299857636956631",
-            "5228997669266954309",
-            "5230934922855750485",
-            "5231262637450369294",
-            "5229077375270039133",
-            "5231029807273251847",
-            "5231280989845629711",
-            "5231324850051655564",
-            "5231014714758174349",
-            "5228946688005152975",
-            "5229053898978798305",
-            "5228939644258789499",
-            "5231159188868077127",
-        ],
-        pieces: HashMap::from([
-            (
-                Piece {
-                    color: Color::White,
-                    kind: Kind::Pawn,
-                },
-                ButtonLabel::custom_emoji("5228706161246642160", "⚪"),
-            ),
-            (
-                Piece {
-                    color: Color::White,
-                    kind: Kind::Knight,
-                },
-                ButtonLabel::custom_emoji("5228737651946858079", "⚪"),
-            ),
-            (
-                Piece {
-                    color: Color::White,
-                    kind: Kind::Bishop,
-                },
-                ButtonLabel::custom_emoji("5228900139149603713", "⚪"),
-            ),
-            (
-                Piece {
-                    color: Color::White,
-                    kind: Kind::Rook,
-                },
-                ButtonLabel::custom_emoji("5228764658701214476", "⚪"),
-            ),
-            (
-                Piece {
-                    color: Color::White,
-                    kind: Kind::Queen,
-                },
-                ButtonLabel::custom_emoji("5229122957757949016", "⚪"),
-            ),
-            (
-                Piece {
-                    color: Color::White,
-                    kind: Kind::King,
-                },
-                ButtonLabel::custom_emoji("5228868553960106840", "⚪"),
-            ),
-            (
-                Piece {
-                    color: Color::Black,
-                    kind: Kind::Pawn,
-                },
-                ButtonLabel::custom_emoji("5231291748738701863", "⚫"),
-            ),
-            (
-                Piece {
-                    color: Color::Black,
-                    kind: Kind::Knight,
-                },
-                ButtonLabel::custom_emoji("5228976370524139940", "⚫"),
-            ),
-            (
-                Piece {
-                    color: Color::Black,
-                    kind: Kind::Bishop,
-                },
-                ButtonLabel::custom_emoji("5229157983216248474", "⚫"),
-            ),
-            (
-                Piece {
-                    color: Color::Black,
-                    kind: Kind::Rook,
-                },
-                ButtonLabel::custom_emoji("5229076176974163218", "⚫"),
-            ),
-            (
-                Piece {
-                    color: Color::Black,
-                    kind: Kind::Queen,
-                },
-                ButtonLabel::custom_emoji("5228772548556139102", "⚫"),
-            ),
-            (
-                Piece {
-                    color: Color::Black,
-                    kind: Kind::King,
-                },
-                ButtonLabel::custom_emoji("5231337923932101541", "⚫"),
-            ),
-        ]),
-        cells: [
-            [
-                ButtonLabel::custom_emoji("5228872857517338448", "⬜"),
-                ButtonLabel::custom_emoji("5231047184710931936", "⬛"),
-            ],
-            [
-                ButtonLabel::custom_emoji("5228943294980993429", "🔶"),
-                ButtonLabel::custom_emoji("5229164915293464312", "🔷"),
-            ],
-            [
-                ButtonLabel::custom_emoji("5231332615352522782", "🟢"),
-                ButtonLabel::custom_emoji("5229180544679459827", "🟢"),
-            ],
-            [
-                ButtonLabel::custom_emoji("5229049359198361382", "🔴"),
-                ButtonLabel::custom_emoji("5229058687867328917", "🔴"),
-            ],
-        ],
-    }
+    // Every board cell is a transparent, code-composited overlay. Telegram's
+    // native table supplies the alternating square background; this keeps the
+    // eight columns flush like the official Rich Text Chess reference.
+    //
+    // The overlays and markers are generated locally. ImageGen was used only
+    // for the transparent 2D piece source sheet.
+    let ids: Vec<_> = include_str!("../../../assets/chess-emoji-native/ids.txt")
+        .lines()
+        .filter(|line| !line.is_empty())
+        .collect();
+    assert_eq!(
+        ids.len(),
+        52,
+        "generated chess emoji palette must be complete"
+    );
+    ChessEmojiPalette { ids }
 }
 
 #[derive(Clone)]
@@ -581,10 +378,9 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
     } else {
         (0..8).rev().collect()
     };
-    // The reference is a compact table whose native header cells provide the
-    // light checkerboard squares. Buttons are layered only where an action
-    // exists; this keeps adjacent cells touching instead of showing gaps
-    // around an inline full-cell emoji.
+    // Each board cell is always a button carrying a transparent overlay. The
+    // native table cell supplies the checkerboard background; the header flag
+    // is deliberately applied to every light square, including empty cells.
     let mut board = Ui::table().bordered(false).striped(false).compact(true);
     let mut coordinate_row = vec![TableCell::empty()];
     coordinate_row.extend(
@@ -613,19 +409,15 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
                 CellVisual::Base
             };
             let light = (file + rank) % 2 != 0;
-            let label = palette
-                .cell_label(cell_visual, light, board_piece(&state.board, square))
-                .map(|label| {
-                    TableCell::button(label, ChessAction::Square(square.0))
-                        // Link style removes the native rounded button chrome;
-                        // the table cell itself supplies the checkerboard.
-                        .style(teloxide_ui::ButtonStyle::Link)
-                        .disabled(state.finished)
-                });
-            row.push(label.map_or_else(
-                || TableCell::empty().header(light),
-                |cell| cell.header(light),
-            ));
+            let label = palette.cell_label(cell_visual, board_piece(&state.board, square));
+            row.push(
+                TableCell::button(label, ChessAction::Square(square.0))
+                    // Link style removes native rounded button chrome; the
+                    // table cell supplies the square background.
+                    .style(teloxide_ui::ButtonStyle::Link)
+                    .header(light)
+                    .disabled(state.finished),
+            );
         }
         board = board.row(row);
     }
@@ -968,9 +760,46 @@ mod tests {
             &reference_emoji_palette(),
         )
         .unwrap();
-        // Only occupied cells are interactive before a piece is selected; the
-        // table's native header cells provide the checkerboard underneath.
-        assert_eq!(rendered.action_tokens.len(), 34);
+        // Every cell carries a complete fixed-size sprite and therefore keeps
+        // a server-side action token even when it is empty. The enabled Flip
+        // and Finish controls add the remaining tokens; Undo is disabled at
+        // the initial position.
+        assert_eq!(rendered.action_tokens.len(), 66);
+    }
+
+    #[test]
+    fn selecting_a_piece_keeps_the_same_action_grid() {
+        let selected =
+            transition(ChessState::new(None), ChessAction::Square(square("d1").0)).unwrap();
+        let registry = ActionRegistry::new();
+        let rendered = render_game(
+            &registry,
+            ViewId::new(1),
+            Revision::INITIAL,
+            &selected,
+            &reference_emoji_palette(),
+        )
+        .unwrap();
+        assert_eq!(rendered.action_tokens.len(), 66);
+    }
+
+    #[test]
+    fn board_uses_native_headers_for_light_squares() {
+        let ui = view(&ChessState::new(None), &reference_emoji_palette());
+        let UiNode::Table(table) = &ui.nodes[0] else {
+            panic!("expected the board to be the first node");
+        };
+
+        for (rank_index, row) in table.rows[1..9].iter().enumerate() {
+            for (file_index, cell) in row[1..9].iter().enumerate() {
+                let light = (file_index + (7 - rank_index)) % 2 != 0;
+                if light {
+                    assert!(matches!(cell, TableCell::Header(_)));
+                } else {
+                    assert!(matches!(cell, TableCell::Button(_)));
+                }
+            }
+        }
     }
 
     #[test]

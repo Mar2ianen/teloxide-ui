@@ -160,15 +160,16 @@ Telegram custom emoji can be passed as
 Message object and keeps the fallback text beside it for clients or surfaces
 that cannot show the custom emoji.
 
-The chess reference uses Telegram's compact Rich Message table for the
-checkerboard surface. Light board cells are marked with
-`TableCell::header(true)`, which asks Telegram to paint the native cell
-background; dark cells use the table's normal background. Transparent flat
-custom emoji provide the pieces and selected/legal/capture markers, so the
-native cells touch without the gaps caused by inline full-cell sprites. Action
-buttons are added only to occupied or actionable cells and remain server-side.
-The alternate full-cell palette is documented in
-[`assets/chess-emoji-reference-v2/README.md`](assets/chess-emoji-reference-v2/README.md).
+The chess reference uses Telegram's compact Rich Message table with one
+interactive cell per board square. The checkerboard is Telegram's native table
+background, with light squares represented as native header cells; this keeps
+adjacent squares flush like the official reference. Transparent 100×100
+overlays provide the flat 2D pieces, selection border, and legal/capture
+markers. ImageGen is used only for the transparent chess-piece source sheet;
+the table backgrounds and overlays are generated locally. Every cell remains
+the same kind of interactive label before and after a selection, so Telegram
+does not reflow the board when markers appear. The generated palette and its
+IDs are documented in [`assets/chess-emoji-native/`](assets/chess-emoji-native/).
 
 ### `Surface`
 
@@ -278,10 +279,11 @@ The first application on top of the kit is the separate
 It renders an 8×8 board as Rich Message button rows, stores the board on the
 server, acknowledges callbacks before projection, and edits one Telegram
 message through `SurfaceWorker`. The complete runbook and deliberate MVP rule
-scope are in [`docs/CHESS_REFERENCE.md`](docs/CHESS_REFERENCE.md). Occupied
-and currently actionable cells are action targets; legal moves are calculated
-from the authoritative board on the server, and the custom emoji for pieces
-and cell states come from the published flat 2D set.
+scope are in [`docs/CHESS_REFERENCE.md`](docs/CHESS_REFERENCE.md). Every cell
+is a stable action target with a transparent overlay, so native table geometry
+does not change during selection; legal moves are calculated from the
+authoritative board on the server, and the custom emoji for pieces and cell
+states come from the published flat 2D set.
 
 ## Relationship with teloxide
 

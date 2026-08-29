@@ -35,6 +35,12 @@ the first explicitly stabilized release.
 - Native `TableCell::header` rendering for Telegram header-cell backgrounds;
   the chess reference uses it to keep checkerboard cells adjacent without
   inline full-cell sprite gaps.
+- Rebuilt the chess visual palette around Telegram's native compact-table
+  backgrounds and 52 transparent 100×100 overlays. ImageGen remains limited to
+  the flat 2D piece source sheet; locally generated overlays provide pieces,
+  selection, and legal/capture markers without putting a second background in
+  each cell. Light cells use native header backgrounds so adjacent squares stay
+  flush with the reference.
 - Pinned the teloxide dependency to fork commit `a6092220`, where `outbound`
   is an explicit opt-in feature.
 
