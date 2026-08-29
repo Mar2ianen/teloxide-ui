@@ -7,8 +7,10 @@ the first explicitly stabilized release.
 
 ## Unreleased
 
-- Fix chess fallback rendering by using the same metadata-matched piece emojis
-  in group and private projections, with invisible labels for empty action cells.
+- Fix chess custom-emoji metadata on the first state update: native selected,
+  legal, and capture overlays now retain their declared `▫️` alternative text,
+  while ordinary pieces keep the same metadata-matched palette in group and
+  private projections.
 - Add an explicit PVP autostart mode for group smoke tests.
 
 ### Added

@@ -24,5 +24,10 @@ Empty base cells remain action buttons with an invisible plain-text label, so
 clients that cannot resolve the native-v2 custom-emoji document do not show a
 white `▫️` placeholder in every square.
 
+The stateful overlay entries all declare `▫️` as their Telegram alternative
+text. The renderer must preserve that manifest value for selected, legal, and
+capture cells; substituting green/red/yellow marker text makes the first edit
+invalid even when the bot is entitled to use custom emoji.
+
 The published set is
 [`teloxide_ui_chess_native_v2_by_testteloxideui_bot`](https://t.me/addemoji/teloxide_ui_chess_native_v2_by_testteloxideui_bot).

@@ -17,8 +17,11 @@ squares remain flush. Selection borders and legal/capture markers are
 generated locally; ImageGen is used only for the transparent 2D piece source
 sheet in [`assets/chess-emoji-native/`](../assets/chess-emoji-native/).
 Because empty and occupied cells use the same transparent overlay geometry, the
-board does not grow or jump when a piece is selected. Custom emoji labels
-retain valid Unicode fallbacks for clients that cannot display the set.
+board does not grow or jump when a piece is selected. The piece-only entries
+use their matching `⚪`/`⚫` metadata, while every stateful overlay preserves
+the manifest's `▫️` alternative text. That alternative is part of Telegram's
+custom-emoji contract, not a place for the application to substitute a green,
+red, or yellow marker.
 
 All projections use the original piece-only palette, whose `⚪`/`⚫` fallback
 metadata matches the custom emoji. Empty base cells use an invisible plain-text
@@ -135,8 +138,8 @@ only the server-side action semantics decide whether a click is a legal move.
 Coordinate gutters, board flipping, undo, finish, and new-game controls are
 part of the projection. The view marks the selected piece and
 legal destinations, and the server recomputes legality during the callback
-transition for both colors. Empty legal destinations use the green cell-state
-emoji; occupied capture targets use the red cell-state sprite. A stale or
+transition for both colors. Empty legal destinations use the green overlay
+artwork; occupied capture targets use the red overlay artwork. A stale or
 illegal callback never changes state. It is acknowledged with a short client
 notification instead of being silently dropped, so an empty square, a
 wrong-side click, a stale button, or a move that would leave the king in check

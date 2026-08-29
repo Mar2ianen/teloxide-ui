@@ -149,27 +149,13 @@ impl ChessEmojiPalette {
         }
 
         let index = visual.index() * 13 + piece_index(piece);
-        let fallback = match (visual, piece) {
-            (CellVisual::Legal, None) => "🟢",
-            (CellVisual::Capture, None) => "🔴",
-            (CellVisual::Selected, None) => "🟨",
-            (_, None) => "▫️",
-            (
-                _,
-                Some(Piece {
-                    color: Color::White,
-                    ..
-                }),
-            ) => "⚪",
-            (
-                _,
-                Some(Piece {
-                    color: Color::Black,
-                    ..
-                }),
-            ) => "⚫",
-        };
-        Some(ButtonLabel::custom_emoji(self.ids[index], fallback))
+        // Every stateful overlay in this manifest is a custom emoji whose
+        // Telegram metadata declares `▫️` as its alternative text. The
+        // alternative is not an application-level label: it must match the
+        // emoji bound to the custom-emoji document. Supplying green/red/yellow
+        // here makes the first edit invalid even though the initial board,
+        // which only uses the piece-only manifest, is valid.
+        Some(ButtonLabel::custom_emoji(self.ids[index], "▫️"))
     }
 }
 
@@ -1504,6 +1490,28 @@ mod tests {
             TableCell::Button(button)
                 if button.text == ButtonLabel::custom_emoji(palette.piece_ids[6], "⚪")
         ));
+    }
+
+    #[test]
+    fn stateful_overlays_use_their_manifest_alternative_text() {
+        let palette = reference_emoji_palette();
+        let white_queen = Piece {
+            color: Color::White,
+            kind: Kind::Queen,
+        };
+
+        assert_eq!(
+            palette.cell_label(CellVisual::Legal, None),
+            Some(ButtonLabel::custom_emoji(palette.ids[26], "▫️"))
+        );
+        assert_eq!(
+            palette.cell_label(CellVisual::Selected, Some(white_queen)),
+            Some(ButtonLabel::custom_emoji(palette.ids[24], "▫️"))
+        );
+        assert_eq!(
+            palette.cell_label(CellVisual::Capture, Some(white_queen)),
+            Some(ButtonLabel::custom_emoji(palette.ids[50], "▫️"))
+        );
     }
 
     #[test]
