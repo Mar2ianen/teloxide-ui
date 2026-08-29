@@ -14,9 +14,10 @@ use lazychess::uci::{AnalysisInfo, Score, SearchConfig, UciEngine, UciError};
 use teloxide::{
     dispatching::UpdateFilterExt,
     outbound::{Outbound, OutboundQueue, OutboundSettings},
+    payloads::SendRichMessageSetters,
     prelude::Dispatcher,
     requests::Requester,
-    types::{CallbackQuery, ChatId, Message, Update, UserId},
+    types::{CallbackQuery, ChatId, EphemeralMessageParameters, Message, Update, UserId},
     Bot,
 };
 use teloxide_ui::{
@@ -242,6 +243,7 @@ struct ChessApp {
     store: InMemoryUiStore<ChessState>,
     worker: SurfaceWorker<Bot>,
     views: Arc<Mutex<HashMap<Surface, ViewId>>>,
+    surface_flips: Arc<Mutex<HashMap<Surface, bool>>>,
     emoji_palette: ChessEmojiPalette,
     stockfish: Option<StockfishEngine>,
 }
@@ -278,6 +280,7 @@ impl ChessApp {
             store: InMemoryUiStore::new(),
             worker: SurfaceWorker::new(bot, queue),
             views: Arc::new(Mutex::new(HashMap::new())),
+            surface_flips: Arc::new(Mutex::new(HashMap::new())),
             emoji_palette: reference_emoji_palette(),
             stockfish,
         })
@@ -318,7 +321,14 @@ impl ChessApp {
         let view_id = ViewId::fresh();
         let state = ChessState::with_mode(owner, mode);
         let palette = self.emoji_palette();
-        let rendered = render_game(&self.registry, view_id, Revision::INITIAL, &state, &palette)?;
+        let rendered = render_game(
+            &self.registry,
+            view_id,
+            Revision::INITIAL,
+            &state,
+            &palette,
+            false,
+        )?;
 
         // The initial send must use the same shared outbound queue as later
         // edits. The view/store record is inserted only after Telegram gives
@@ -337,10 +347,104 @@ impl ChessApp {
             state,
             surface: surface.clone(),
         })?;
+        self.register_surface(surface, view_id, false);
+        Ok(())
+    }
+
+    fn register_surface(&self, surface: Surface, view_id: ViewId, flipped: bool) {
         self.views
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(surface, view_id);
+            .insert(surface.clone(), view_id);
+        self.surface_flips
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(surface, flipped);
+    }
+
+    fn binding_for(&self, surface: &Surface) -> Option<(ViewId, bool)> {
+        let view_id = self
+            .views
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(surface)
+            .copied()?;
+        let flipped = self
+            .surface_flips
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(surface)
+            .copied()
+            .unwrap_or(false);
+        Some((view_id, flipped))
+    }
+
+    fn surfaces_for(&self, view_id: ViewId) -> Vec<(Surface, bool)> {
+        let views = self
+            .views
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let flips = self
+            .surface_flips
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        views
+            .iter()
+            .filter_map(|(surface, current_view)| {
+                (*current_view == view_id).then_some((
+                    surface.clone(),
+                    flips.get(surface).copied().unwrap_or(false),
+                ))
+            })
+            .collect()
+    }
+
+    fn flip_surface(&self, surface: &Surface) -> Option<bool> {
+        let mut flips = self
+            .surface_flips
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let flipped = flips.get_mut(surface)?;
+        *flipped = !*flipped;
+        Some(*flipped)
+    }
+
+    async fn project_record(&self, record: &ViewRecord<ChessState>) -> Result<(), HandlerError> {
+        let palette = self.emoji_palette();
+        for (surface, flipped) in self.surfaces_for(record.id) {
+            let rendered = render_game(
+                &self.registry,
+                record.id,
+                record.revision,
+                &record.state,
+                &palette,
+                flipped,
+            )?;
+            self.worker
+                .project(surface, record.revision, rendered.rich_message)
+                .await?;
+        }
+        Ok(())
+    }
+
+    async fn project_surface(
+        &self,
+        surface: Surface,
+        record: &ViewRecord<ChessState>,
+        flipped: bool,
+    ) -> Result<(), HandlerError> {
+        let palette = self.emoji_palette();
+        let rendered = render_game(
+            &self.registry,
+            record.id,
+            record.revision,
+            &record.state,
+            &palette,
+            flipped,
+        )?;
+        self.worker
+            .project(surface, record.revision, rendered.rich_message)
+            .await?;
         Ok(())
     }
 
@@ -356,20 +460,10 @@ impl ChessApp {
         let Ok(token) = teloxide_ui::ActionToken::try_from(data) else {
             return Ok(());
         };
-        let Some(message) = query.regular_message() else {
+        let Some(surface) = callback_surface(&query) else {
             return Ok(());
         };
-        let surface = Surface::Message {
-            chat_id: message.chat.id,
-            message_id: message.id,
-        };
-        let Some(view_id) = self
-            .views
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(&surface)
-            .copied()
-        else {
+        let Some((view_id, _)) = self.binding_for(&surface) else {
             return Ok(());
         };
         let Some(record) = self.store.load(view_id)? else {
@@ -382,6 +476,19 @@ impl ChessApp {
             Ok(record) => record.action,
             Err(_) => return Ok(()),
         };
+
+        // Board orientation is a projection preference, not domain state. A
+        // flip therefore updates only the surface that produced this callback
+        // and does not consume a state revision or affect the other player.
+        if matches!(&action, ChessAction::FlipBoard) {
+            let Some(flipped) = self.flip_surface(&surface) else {
+                return Ok(());
+            };
+            self.project_surface(surface, &record, flipped).await?;
+            return Ok(());
+        }
+
+        let is_join_black = matches!(&action, ChessAction::JoinBlack);
         let next_state = match transition_for_actor(record.state, Some(query.from.id), action) {
             Ok(state) => state,
             Err(_) => return Ok(()),
@@ -396,6 +503,16 @@ impl ChessApp {
             Ok(record) => record,
             Err(_) => return Ok(()),
         };
+
+        if is_join_black {
+            if let Err(error) = self
+                .send_black_ephemeral(&updated, query.from.id, query.id.to_string())
+                .await
+            {
+                eprintln!("cannot create Black's private chess surface: {error}");
+            }
+        }
+
         let updated = if updated.state.should_engine_move() {
             match self.stockfish.as_ref() {
                 Some(engine) => {
@@ -436,17 +553,50 @@ impl ChessApp {
         } else {
             updated
         };
+        self.project_record(&updated).await?;
+        Ok(())
+    }
+
+    async fn send_black_ephemeral(
+        &self,
+        record: &ViewRecord<ChessState>,
+        receiver_user_id: UserId,
+        callback_query_id: String,
+    ) -> Result<(), HandlerError> {
+        let Surface::Message { chat_id, .. } = &record.surface else {
+            return Ok(());
+        };
+        let chat_id = *chat_id;
         let palette = self.emoji_palette();
         let rendered = render_game(
             &self.registry,
-            updated.id,
-            updated.revision,
-            &updated.state,
+            record.id,
+            record.revision,
+            &record.state,
             &palette,
+            true,
         )?;
-        self.worker
-            .project(updated.surface, updated.revision, rendered.rich_message)
+        let sent = self
+            .outbound
+            .send_rich_message(chat_id, rendered.rich_message)
+            .ephemeral_message_parameters(
+                EphemeralMessageParameters::new(receiver_user_id)
+                    .callback_query_id(callback_query_id)
+                    .replace_callback_query_message(true),
+            )
             .await?;
+        let Some(ephemeral_message_id) = sent.ephemeral_message_id else {
+            return Err("Telegram did not return an ephemeral_message_id".into());
+        };
+        self.register_surface(
+            Surface::Ephemeral {
+                chat_id,
+                receiver_user_id,
+                ephemeral_message_id,
+            },
+            record.id,
+            true,
+        );
         Ok(())
     }
 }
@@ -499,16 +649,34 @@ async fn callback_handler(app: Arc<ChessApp>, query: CallbackQuery) -> Result<()
     app.handle_callback(query).await
 }
 
+fn callback_surface(query: &CallbackQuery) -> Option<Surface> {
+    let message = query.regular_message()?;
+    if let Some(ephemeral_message_id) = message.ephemeral_message_id {
+        let receiver_user_id = message.receiver_user.as_ref()?.id;
+        (receiver_user_id == query.from.id).then_some(Surface::Ephemeral {
+            chat_id: message.chat.id,
+            receiver_user_id,
+            ephemeral_message_id,
+        })
+    } else {
+        Some(Surface::Message {
+            chat_id: message.chat.id,
+            message_id: message.id,
+        })
+    }
+}
+
 fn render_game(
     registry: &ActionRegistry<ChessAction>,
     view_id: ViewId,
     revision: Revision,
     state: &ChessState,
     palette: &ChessEmojiPalette,
+    flipped: bool,
 ) -> Result<teloxide_ui::RenderedRichMessage, teloxide_ui::RenderError> {
     let renderer = RichRenderer::new(registry.clone()).action_ttl(Some(ACTION_TTL));
     renderer.render(
-        &view(state, palette),
+        &view(state, palette, flipped),
         RenderContext::new(view_id, revision)
             .actor(actor_policy(state))
             .stale_policy(StalePolicy::Reject),
@@ -523,7 +691,7 @@ fn actor_policy(state: &ChessState) -> ActorPolicy {
     }
 }
 
-fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
+fn view(state: &ChessState, palette: &ChessEmojiPalette, flipped: bool) -> Ui<ChessAction> {
     let turn = ui_color(state.board.side_to_move());
     let status = if state.finished {
         "Game finished".to_owned()
@@ -547,12 +715,12 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
             }
         }
     };
-    let files: Vec<i8> = if state.flipped {
+    let files: Vec<i8> = if flipped {
         (0..8).rev().collect()
     } else {
         (0..8).collect()
     };
-    let ranks: Vec<i8> = if state.flipped {
+    let ranks: Vec<i8> = if flipped {
         (0..8).collect()
     } else {
         (0..8).rev().collect()
@@ -676,7 +844,10 @@ fn transition_for_actor(
             let mode = state.mode;
             state = ChessState::with_mode(owner, mode);
         }
-        ChessAction::FlipBoard => state.flipped = !state.flipped,
+        ChessAction::FlipBoard => {
+            // Board orientation belongs to the rendered surface, not the
+            // authoritative game state. ChessApp handles this action locally.
+        }
         ChessAction::Undo => {
             ensure_participant(&state, actor)?;
             let undo_count = if state.mode == GameMode::Stockfish {
@@ -762,10 +933,10 @@ fn ensure_manager(state: &ChessState, actor: Option<UserId>) -> Result<(), &'sta
 fn ensure_participant(state: &ChessState, actor: Option<UserId>) -> Result<(), &'static str> {
     match actor {
         Some(actor)
-            if !state.is_participant(actor)
-                && !(state.owner.is_none()
+            if !(state.is_participant(actor)
+                || (state.owner.is_none()
                     && state.white_player.is_none()
-                    && state.black_player.is_none()) =>
+                    && state.black_player.is_none())) =>
         {
             Err("only a player can do that")
         }
@@ -876,7 +1047,6 @@ struct ChessState {
     black_player: Option<UserId>,
     history: Vec<ChessPosition>,
     moves: Vec<String>,
-    flipped: bool,
     finished: bool,
 }
 
@@ -900,7 +1070,6 @@ impl ChessState {
             black_player: None,
             history: Vec::new(),
             moves: Vec::new(),
-            flipped: false,
             finished: false,
         }
     }
@@ -1070,6 +1239,7 @@ mod tests {
             Revision::INITIAL,
             &ChessState::with_mode(None, GameMode::Stockfish),
             &reference_emoji_palette(),
+            false,
         )
         .unwrap();
         // Every cell carries a complete fixed-size sprite and therefore keeps
@@ -1093,6 +1263,7 @@ mod tests {
             Revision::INITIAL,
             &selected,
             &reference_emoji_palette(),
+            false,
         )
         .unwrap();
         assert_eq!(rendered.action_tokens.len(), 66);
@@ -1100,7 +1271,7 @@ mod tests {
 
     #[test]
     fn board_uses_native_headers_for_light_squares() {
-        let ui = view(&ChessState::new(None), &reference_emoji_palette());
+        let ui = view(&ChessState::new(None), &reference_emoji_palette(), false);
         let UiNode::Table(table) = &ui.nodes[0] else {
             panic!("expected the board to be the first node");
         };
@@ -1147,6 +1318,7 @@ mod tests {
             Revision::INITIAL,
             &ChessState::new(None),
             &reference_emoji_palette(),
+            false,
         )
         .unwrap();
         assert_eq!(rendered.action_tokens.len(), 67);
@@ -1226,7 +1398,7 @@ mod tests {
     fn flip_and_undo_are_stateful_controls() {
         let state = ChessState::new(None);
         let state = transition(state, ChessAction::FlipBoard).unwrap();
-        assert!(state.flipped);
+        assert_eq!(state, ChessState::new(None));
         let state = play(state, "e2", "e4");
         assert_eq!(state.moves, ["e2-e4"]);
         let state = transition(state, ChessAction::Undo).unwrap();
@@ -1236,6 +1408,23 @@ mod tests {
             Some(EnginePiece::Pawn)
         );
         assert!(state.moves.is_empty());
+    }
+
+    #[test]
+    fn board_orientation_is_a_surface_projection_preference() {
+        let state = ChessState::new(None);
+        let normal = view(&state, &reference_emoji_palette(), false);
+        let flipped = view(&state, &reference_emoji_palette(), true);
+        let UiNode::Table(normal) = &normal.nodes[0] else {
+            panic!("expected the normal board to be the first node");
+        };
+        let UiNode::Table(flipped) = &flipped.nodes[0] else {
+            panic!("expected the flipped board to be the first node");
+        };
+        assert!(matches!(normal.rows[0][1], TableCell::Text(_)));
+        assert!(matches!(flipped.rows[0][1], TableCell::Text(_)));
+        assert_eq!(normal.rows[1][0], TableCell::text("8"));
+        assert_eq!(flipped.rows[1][0], TableCell::text("1"));
     }
 
     #[test]

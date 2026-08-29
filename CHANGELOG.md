@@ -15,6 +15,9 @@ the first explicitly stabilized release.
 - Chat-aware chess modes: private `/chess` versus Stockfish, group `/chess`
   for two players, explicit `/chess pvp` and `/chess bot` selectors, and a
   server-validated Black-seat claim.
+- Group chess now projects White to the shared message and Black to a targeted
+  ephemeral Rich Message; each surface keeps its own board orientation while
+  all projections continue to derive from one authoritative game state.
 - Initial repository architecture.
 - MIT license.
 - Project and agent documentation.

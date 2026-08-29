@@ -65,6 +65,15 @@ only one committed Black player. In engine mode the external user can never
 submit a Black move; only the engine transition can do so. Undo removes the
 last human/engine pair in engine mode so the next visible turn remains White.
 
+In a group chat, the shared message is the White-facing projection. When a
+second player claims Black, the bot sends that player a targeted ephemeral Rich
+Message using the callback query that claimed the seat; that projection shows
+Black at the bottom and replaces only that player's callback message. Later
+state revisions are projected to the shared message and every registered
+ephemeral player surface. `Flip board` changes only the surface that produced
+the callback, so White and Black may keep opposite orientations without
+putting presentation state into `ChessState`.
+
 The engine path is configured with `STOCKFISH_PATH`. Search uses
 `STOCKFISH_MOVETIME_MS` (100–5000 ms, default 350) unless `STOCKFISH_DEPTH`
 (1–32) is set. This keeps deployment choices out of the source while keeping

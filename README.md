@@ -285,6 +285,12 @@ does not change during selection; legal moves are calculated from the
 authoritative board on the server, and the custom emoji for pieces and cell
 states come from the published flat 2D set.
 
+In group two-player mode the shared message is the White projection. Claiming
+Black creates a targeted ephemeral projection for that player, with Black at
+the bottom; subsequent edits update both surfaces from the same authoritative
+state. Board flipping is stored per surface, so one player can flip without
+reorienting the other player's view.
+
 ## Relationship with teloxide
 
 This project depends on teloxide; it does not live inside teloxide.
