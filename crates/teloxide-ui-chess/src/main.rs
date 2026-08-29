@@ -762,8 +762,7 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette, flipped: bool) -> Ui<Ch
                     // Link style removes native rounded button chrome; the
                     // table cell supplies the square background.
                     .style(teloxide_ui::ButtonStyle::Link)
-                    .header(light)
-                    .disabled(state.finished),
+                    .header(light),
             );
         }
         board = board.row(row);
@@ -1284,6 +1283,26 @@ mod tests {
                 } else {
                     assert!(matches!(cell, TableCell::Button(_)));
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn finished_board_keeps_cell_geometry_and_server_actions() {
+        let mut state = ChessState::new(None);
+        state.finished = true;
+        let ui = view(&state, &reference_emoji_palette(), false);
+        let UiNode::Table(table) = &ui.nodes[0] else {
+            panic!("expected the board to be the first node");
+        };
+
+        for row in &table.rows[1..9] {
+            for cell in &row[1..9] {
+                let cell = match cell {
+                    TableCell::Header(inner) => inner.as_ref(),
+                    cell => cell,
+                };
+                assert!(matches!(cell, TableCell::Button(button) if !button.disabled));
             }
         }
     }
