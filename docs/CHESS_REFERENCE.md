@@ -5,9 +5,10 @@ It reproduces the important interaction model of Telegram's Rich Message
 chess demonstration: one message contains the board, every enabled cell is a
 native Rich Message button, a click arrives as a callback, and the bot edits
 the same message with the next complete representation. The example uses the
-two custom emoji IDs extracted from the supplied empty reference board for
-empty cells; Unicode chess symbols remain the deterministic fallback for
-pieces.
+flat 2D custom emoji set
+[`teloxide_ui_chess_by_testteloxideui_bot`](https://t.me/addemoji/teloxide_ui_chess_by_testteloxideui_bot):
+12 piece icons and eight cell-state icons. Each label also carries a Unicode
+fallback.
 
 The reference follows this flow:
 
@@ -62,4 +63,6 @@ composition, and surface mapping in the application layer.
 
 Every board cell is a button. The view marks the selected piece and legal
 destinations, and the server recomputes legality during the callback transition
-for both colors. A stale or illegal callback never changes state.
+for both colors. Empty legal destinations use the green cell-state emoji;
+occupied capture targets use the red button style. A stale or illegal callback
+never changes state.

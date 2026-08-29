@@ -22,26 +22,143 @@ type HandlerError = Box<dyn Error + Send + Sync>;
 
 const ACTION_TTL: Duration = Duration::from_secs(30 * 60);
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct ChessEmojiPalette {
     pieces: HashMap<Piece, ButtonLabel>,
-    cells: [Option<ButtonLabel>; 2],
+    cells: [[ButtonLabel; 2]; 4],
 }
 
 impl ChessEmojiPalette {
-    fn cell_label(&self, ordinal: usize) -> Option<ButtonLabel> {
-        self.cells[ordinal % self.cells.len()].clone()
+    fn cell_label(&self, visual: CellVisual, ordinal: usize) -> ButtonLabel {
+        self.cells[visual.index()][ordinal % 2].clone()
+    }
+}
+
+#[derive(Clone, Copy)]
+enum CellVisual {
+    Base,
+    Selected,
+    Legal,
+    Capture,
+}
+
+impl CellVisual {
+    const fn index(self) -> usize {
+        match self {
+            Self::Base => 0,
+            Self::Selected => 1,
+            Self::Legal => 2,
+            Self::Capture => 3,
+        }
     }
 }
 
 fn reference_emoji_palette() -> ChessEmojiPalette {
-    // Captured once from the supplied empty Rich Message board. The two
-    // labels alternate in the same order as the 8x8 button rows.
+    // Generated and uploaded as `teloxide_ui_chess_by_testteloxideui_bot`.
     ChessEmojiPalette {
-        pieces: HashMap::new(),
+        pieces: HashMap::from([
+            (
+                Piece {
+                    color: Color::White,
+                    kind: Kind::Pawn,
+                },
+                ButtonLabel::custom_emoji("5228706161246642160", "♙"),
+            ),
+            (
+                Piece {
+                    color: Color::White,
+                    kind: Kind::Knight,
+                },
+                ButtonLabel::custom_emoji("5228737651946858079", "♘"),
+            ),
+            (
+                Piece {
+                    color: Color::White,
+                    kind: Kind::Bishop,
+                },
+                ButtonLabel::custom_emoji("5228900139149603713", "♗"),
+            ),
+            (
+                Piece {
+                    color: Color::White,
+                    kind: Kind::Rook,
+                },
+                ButtonLabel::custom_emoji("5228764658701214476", "♖"),
+            ),
+            (
+                Piece {
+                    color: Color::White,
+                    kind: Kind::Queen,
+                },
+                ButtonLabel::custom_emoji("5229122957757949016", "♕"),
+            ),
+            (
+                Piece {
+                    color: Color::White,
+                    kind: Kind::King,
+                },
+                ButtonLabel::custom_emoji("5228868553960106840", "♔"),
+            ),
+            (
+                Piece {
+                    color: Color::Black,
+                    kind: Kind::Pawn,
+                },
+                ButtonLabel::custom_emoji("5231291748738701863", "♟"),
+            ),
+            (
+                Piece {
+                    color: Color::Black,
+                    kind: Kind::Knight,
+                },
+                ButtonLabel::custom_emoji("5228976370524139940", "♞"),
+            ),
+            (
+                Piece {
+                    color: Color::Black,
+                    kind: Kind::Bishop,
+                },
+                ButtonLabel::custom_emoji("5229157983216248474", "♝"),
+            ),
+            (
+                Piece {
+                    color: Color::Black,
+                    kind: Kind::Rook,
+                },
+                ButtonLabel::custom_emoji("5229076176974163218", "♜"),
+            ),
+            (
+                Piece {
+                    color: Color::Black,
+                    kind: Kind::Queen,
+                },
+                ButtonLabel::custom_emoji("5228772548556139102", "♛"),
+            ),
+            (
+                Piece {
+                    color: Color::Black,
+                    kind: Kind::King,
+                },
+                ButtonLabel::custom_emoji("5231337923932101541", "♚"),
+            ),
+        ]),
         cells: [
-            Some(ButtonLabel::custom_emoji("5877410604225924969", "🔄")),
-            Some(ButtonLabel::custom_emoji("5843799474362652262", "🔄")),
+            [
+                ButtonLabel::custom_emoji("5228872857517338448", "⬜"),
+                ButtonLabel::custom_emoji("5231047184710931936", "⬛"),
+            ],
+            [
+                ButtonLabel::custom_emoji("5228943294980993429", "🔶"),
+                ButtonLabel::custom_emoji("5229164915293464312", "🔷"),
+            ],
+            [
+                ButtonLabel::custom_emoji("5231332615352522782", "🟢"),
+                ButtonLabel::custom_emoji("5229180544679459827", "🟢"),
+            ],
+            [
+                ButtonLabel::custom_emoji("5229049359198361382", "🔴"),
+                ButtonLabel::custom_emoji("5229058687867328917", "🔴"),
+            ],
         ],
     }
 }
@@ -53,7 +170,7 @@ struct ChessApp {
     store: InMemoryUiStore<ChessState>,
     worker: SurfaceWorker<Bot>,
     views: Arc<Mutex<HashMap<Surface, ViewId>>>,
-    emoji_palette: Arc<Mutex<ChessEmojiPalette>>,
+    emoji_palette: ChessEmojiPalette,
 }
 
 impl ChessApp {
@@ -66,15 +183,12 @@ impl ChessApp {
             store: InMemoryUiStore::new(),
             worker: SurfaceWorker::new(bot, queue),
             views: Arc::new(Mutex::new(HashMap::new())),
-            emoji_palette: Arc::new(Mutex::new(reference_emoji_palette())),
+            emoji_palette: reference_emoji_palette(),
         })
     }
 
     fn emoji_palette(&self) -> ChessEmojiPalette {
-        self.emoji_palette
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
+        self.emoji_palette.clone()
     }
 
     async fn start_game(&self, message: &Message) -> Result<(), HandlerError> {
@@ -246,22 +360,30 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
         let mut row = Ui::button_row();
         for file in 0..8 {
             let square = Square::new(file, rank).expect("board coordinate");
+            let legal_destination = state
+                .selected
+                .is_some_and(|from| legal_move(&state.board, from, square));
+            let capture_target = legal_destination && state.board[square.index()].is_some();
             let style = if state.selected == Some(square) {
                 ButtonStyle::Primary
-            } else if state
-                .selected
-                .is_some_and(|from| legal_move(&state.board, from, square))
-            {
+            } else if capture_target {
+                ButtonStyle::Danger
+            } else if legal_destination {
                 ButtonStyle::Success
             } else {
                 ButtonStyle::Default
             };
+            let empty_cell_visual = if state.selected == Some(square) {
+                CellVisual::Selected
+            } else if capture_target {
+                CellVisual::Capture
+            } else if legal_destination {
+                CellVisual::Legal
+            } else {
+                CellVisual::Base
+            };
             let label = state.board[square.index()].map_or_else(
-                || {
-                    palette
-                        .cell_label(ordinal)
-                        .unwrap_or_else(|| ButtonLabel::from("·"))
-                },
+                || palette.cell_label(empty_cell_visual, ordinal),
                 |piece| {
                     palette
                         .pieces

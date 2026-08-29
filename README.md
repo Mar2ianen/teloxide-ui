@@ -150,6 +150,11 @@ Telegram custom emoji can be passed as
 Message object and keeps the fallback text beside it for clients or surfaces
 that cannot show the custom emoji.
 
+The chess reference includes a small flat 2D custom emoji set for its pieces,
+board cells, legal destinations, and capture targets. The generated PNG assets
+and the published set link are documented in
+[`assets/chess-emoji/README.md`](assets/chess-emoji/README.md).
+
 ### `Surface`
 
 A `Surface` is an independently rendered Telegram target, for example:
@@ -259,8 +264,8 @@ server, acknowledges callbacks before projection, and edits one Telegram
 message through `SurfaceWorker`. The complete runbook and deliberate MVP rule
 scope are in [`docs/CHESS_REFERENCE.md`](docs/CHESS_REFERENCE.md). Every cell
 is an action target; legal moves are calculated from the authoritative board on
-the server, and the empty-cell custom emoji are taken from the supplied Rich
-Message reference.
+the server, and the custom emoji for pieces and cell states come from the
+published flat 2D set.
 
 ## Relationship with teloxide
 
