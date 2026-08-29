@@ -10,6 +10,7 @@ use cozy_chess::{
     Board as ChessBoard, Color as EngineColor, GameStatus, Piece as EnginePiece,
     Square as EngineSquare,
 };
+use lazychess::uci::{AnalysisInfo, Score, SearchConfig, UciEngine, UciError};
 use teloxide::{
     dispatching::UpdateFilterExt,
     outbound::{Outbound, OutboundQueue, OutboundSettings},
@@ -27,6 +28,88 @@ type HandlerError = Box<dyn Error + Send + Sync>;
 
 const ACTION_TTL: Duration = Duration::from_secs(30 * 60);
 const VISIBLE_MOVE_COUNT: usize = 2;
+const DEFAULT_ENGINE_MOVETIME_MS: u64 = 350;
+const MIN_ENGINE_MOVETIME_MS: u64 = 100;
+const MAX_ENGINE_MOVETIME_MS: u64 = 5_000;
+
+#[derive(Debug)]
+struct EngineError(String);
+
+impl std::fmt::Display for EngineError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl Error for EngineError {}
+
+impl From<UciError> for EngineError {
+    fn from(error: UciError) -> Self {
+        Self(error.to_string())
+    }
+}
+
+#[derive(Debug)]
+struct EngineReply {
+    best_move: String,
+    score: Option<Score>,
+}
+
+#[derive(Clone)]
+struct StockfishEngine {
+    process: Arc<Mutex<UciEngine>>,
+    search: SearchConfig,
+}
+
+impl StockfishEngine {
+    fn from_env() -> Result<Self, EngineError> {
+        let path = std::env::var("STOCKFISH_PATH").unwrap_or_else(|_| "stockfish".to_owned());
+        let movetime = std::env::var("STOCKFISH_MOVETIME_MS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(DEFAULT_ENGINE_MOVETIME_MS)
+            .clamp(MIN_ENGINE_MOVETIME_MS, MAX_ENGINE_MOVETIME_MS);
+        let search = std::env::var("STOCKFISH_DEPTH")
+            .ok()
+            .and_then(|value| value.parse::<u32>().ok())
+            .map(|depth| SearchConfig::depth(depth.clamp(1, 32)))
+            .unwrap_or_else(|| SearchConfig::movetime(movetime));
+        let mut process = UciEngine::new(&path)
+            .map_err(|error| EngineError(format!("cannot start Stockfish at `{path}`: {error}")))?;
+        process.new_game()?;
+        Ok(Self {
+            process: Arc::new(Mutex::new(process)),
+            search,
+        })
+    }
+
+    async fn best_move(&self, board: &ChessBoard) -> Result<EngineReply, EngineError> {
+        let fen = board.to_string();
+        let process = Arc::clone(&self.process);
+        let search = self.search.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut process = process
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            process.set_position_fen(&fen)?;
+            let (best_move, analysis) = process.best_move_with_analysis(&search)?;
+            Ok(EngineReply {
+                best_move,
+                score: deepest_score(&analysis),
+            })
+        })
+        .await
+        .map_err(|error| EngineError(format!("Stockfish worker stopped: {error}")))?
+    }
+}
+
+fn deepest_score(analysis: &[AnalysisInfo]) -> Option<Score> {
+    analysis
+        .iter()
+        .filter(|info| info.multipv.unwrap_or(1) == 1)
+        .max_by_key(|info| info.depth.unwrap_or(0))
+        .and_then(|info| info.score.clone())
+}
 
 #[derive(Clone)]
 struct ChessEmojiPalette {
@@ -160,12 +243,35 @@ struct ChessApp {
     worker: SurfaceWorker<Bot>,
     views: Arc<Mutex<HashMap<Surface, ViewId>>>,
     emoji_palette: ChessEmojiPalette,
+    stockfish: Option<StockfishEngine>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum GameMode {
+    Stockfish,
+    TwoPlayer,
+}
+
+fn requested_mode(command: &str, is_private_chat: bool) -> GameMode {
+    match command.split_whitespace().nth(1) {
+        Some("pvp" | "2p" | "two" | "двое") => GameMode::TwoPlayer,
+        Some("bot" | "stockfish" | "solo") => GameMode::Stockfish,
+        _ if is_private_chat => GameMode::Stockfish,
+        _ => GameMode::TwoPlayer,
+    }
 }
 
 impl ChessApp {
     fn new(bot: Bot) -> Result<Self, HandlerError> {
         let queue = OutboundQueue::new_spawn(OutboundSettings::default())?;
         let outbound = bot.clone().outbound(queue.clone());
+        let stockfish = match StockfishEngine::from_env() {
+            Ok(engine) => Some(engine),
+            Err(error) => {
+                eprintln!("Stockfish is unavailable: {error}");
+                None
+            }
+        };
         Ok(Self {
             outbound,
             registry: ActionRegistry::with_default_ttl(Some(ACTION_TTL)),
@@ -173,6 +279,7 @@ impl ChessApp {
             worker: SurfaceWorker::new(bot, queue),
             views: Arc::new(Mutex::new(HashMap::new())),
             emoji_palette: reference_emoji_palette(),
+            stockfish,
         })
     }
 
@@ -181,17 +288,35 @@ impl ChessApp {
     }
 
     async fn start_game(&self, message: &Message) -> Result<(), HandlerError> {
-        self.start_game_in_chat(message.chat.id, message.from.as_ref().map(|user| user.id))
-            .await
+        let mode = requested_mode(
+            message.text().unwrap_or_default(),
+            message.chat.is_private(),
+        );
+        if mode == GameMode::Stockfish && self.stockfish.is_none() {
+            self.outbound
+                .send_message(
+                    message.chat.id,
+                    "Stockfish is not configured on this bot. Use /chess pvp for a two-player game, or set STOCKFISH_PATH.",
+                )
+                .await?;
+            return Ok(());
+        }
+        self.start_game_in_chat(
+            message.chat.id,
+            message.from.as_ref().map(|user| user.id),
+            mode,
+        )
+        .await
     }
 
     async fn start_game_in_chat(
         &self,
         chat_id: ChatId,
         owner: Option<UserId>,
+        mode: GameMode,
     ) -> Result<(), HandlerError> {
         let view_id = ViewId::fresh();
-        let state = ChessState::new(owner);
+        let state = ChessState::with_mode(owner, mode);
         let palette = self.emoji_palette();
         let rendered = render_game(&self.registry, view_id, Revision::INITIAL, &state, &palette)?;
 
@@ -257,7 +382,7 @@ impl ChessApp {
             Ok(record) => record.action,
             Err(_) => return Ok(()),
         };
-        let next_state = match transition(record.state, action) {
+        let next_state = match transition_for_actor(record.state, Some(query.from.id), action) {
             Ok(state) => state,
             Err(_) => return Ok(()),
         };
@@ -270,6 +395,46 @@ impl ChessApp {
         {
             Ok(record) => record,
             Err(_) => return Ok(()),
+        };
+        let updated = if updated.state.should_engine_move() {
+            match self.stockfish.as_ref() {
+                Some(engine) => {
+                    let reply = match engine.best_move(&updated.state.board).await {
+                        Ok(reply) => reply,
+                        Err(error) => {
+                            eprintln!("Stockfish move failed: {error}");
+                            return Ok(());
+                        }
+                    };
+                    let score = reply
+                        .score
+                        .as_ref()
+                        .map(ToString::to_string)
+                        .unwrap_or_else(|| "score unavailable".to_owned());
+                    let engine_state =
+                        match apply_engine_move(updated.state.clone(), &reply.best_move) {
+                            Ok(state) => state,
+                            Err(error) => {
+                                eprintln!("Stockfish returned an illegal move: {error}");
+                                return Ok(());
+                            }
+                        };
+                    eprintln!("Stockfish played {} ({score})", reply.best_move);
+                    match self
+                        .store
+                        .compare_and_set(view_id, updated.revision, engine_state)
+                    {
+                        Ok(record) => record,
+                        Err(_) => return Ok(()),
+                    }
+                }
+                None => {
+                    eprintln!("Stockfish move skipped: engine is unavailable");
+                    updated
+                }
+            }
+        } else {
+            updated
         };
         let palette = self.emoji_palette();
         let rendered = render_game(
@@ -293,8 +458,15 @@ async fn main() -> Result<(), HandlerError> {
     app.outbound.get_me().await?;
     if let Some(raw_chat_id) = std::env::var_os("TELOXIDE_CHESS_AUTOSTART_CHAT_ID") {
         let chat_id = ChatId(raw_chat_id.to_string_lossy().parse()?);
-        app.start_game_in_chat(chat_id, None).await?;
-        println!("sent chess demo to chat {chat_id:?}");
+        if app.stockfish.is_some() {
+            app.start_game_in_chat(chat_id, None, GameMode::Stockfish)
+                .await?;
+            println!("sent chess demo to chat {chat_id:?}");
+        } else {
+            eprintln!(
+                "skipping chess autostart for {chat_id:?}: Stockfish is unavailable; use /chess pvp or configure STOCKFISH_PATH"
+            );
+        }
     }
     println!("teloxide-ui chess demo is running; send /chess to the bot");
     let handler = teloxide::dptree::entry()
@@ -338,13 +510,17 @@ fn render_game(
     renderer.render(
         &view(state, palette),
         RenderContext::new(view_id, revision)
-            .actor(actor_policy(state.owner))
+            .actor(actor_policy(state))
             .stale_policy(StalePolicy::Reject),
     )
 }
 
-fn actor_policy(owner: Option<UserId>) -> ActorPolicy {
-    owner.map_or(ActorPolicy::Any, ActorPolicy::User)
+fn actor_policy(state: &ChessState) -> ActorPolicy {
+    if state.mode == GameMode::TwoPlayer {
+        ActorPolicy::Any
+    } else {
+        state.owner.map_or(ActorPolicy::Any, ActorPolicy::User)
+    }
 }
 
 fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
@@ -364,7 +540,10 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
                 } else {
                     ""
                 };
-                format!("Your move as {}{check}", turn.label())
+                match state.mode {
+                    GameMode::Stockfish => format!("Your move as {}{check}", turn.label()),
+                    GameMode::TwoPlayer => format!("{} to move{check}", turn.label()),
+                }
             }
         }
     };
@@ -442,6 +621,19 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
         format!("Moves · {moves}"),
         [Ui::paragraph(moves)],
     ));
+    if state.mode == GameMode::TwoPlayer {
+        let join_label = if state.black_player.is_some() {
+            "✓ Black joined"
+        } else {
+            "Join as Black"
+        };
+        ui = ui.push(
+            Ui::button_row().push(
+                Ui::button(join_label, ChessAction::JoinBlack)
+                    .disabled(state.finished || state.black_player.is_some()),
+            ),
+        );
+    }
     ui = ui.push(
         Ui::button_row()
             .push(Ui::button("⟳ Flip board", ChessAction::FlipBoard))
@@ -467,23 +659,62 @@ fn visible_moves(moves: &[String]) -> String {
     }
 }
 
-fn transition(mut state: ChessState, action: ChessAction) -> Result<ChessState, &'static str> {
+#[cfg(test)]
+fn transition(state: ChessState, action: ChessAction) -> Result<ChessState, &'static str> {
+    transition_for_actor(state, None, action)
+}
+
+fn transition_for_actor(
+    mut state: ChessState,
+    actor: Option<UserId>,
+    action: ChessAction,
+) -> Result<ChessState, &'static str> {
     match action {
         ChessAction::Reset => {
+            ensure_manager(&state, actor)?;
             let owner = state.owner;
-            state = ChessState::new(owner);
+            let mode = state.mode;
+            state = ChessState::with_mode(owner, mode);
         }
         ChessAction::FlipBoard => state.flipped = !state.flipped,
         ChessAction::Undo => {
-            let previous = state.history.pop().ok_or("nothing to undo")?;
-            state.board = previous.board;
+            ensure_participant(&state, actor)?;
+            let undo_count = if state.mode == GameMode::Stockfish {
+                state.history.len().min(2)
+            } else {
+                1
+            };
+            if undo_count == 0 {
+                return Err("nothing to undo");
+            }
+            for _ in 0..undo_count {
+                let previous = state.history.pop().ok_or("nothing to undo")?;
+                state.board = previous.board;
+                state.moves.pop();
+            }
             state.selected = None;
             state.finished = false;
-            state.moves.pop();
         }
         ChessAction::Finish => {
+            ensure_manager(&state, actor)?;
             state.finished = true;
             state.selected = None;
+        }
+        ChessAction::JoinBlack => {
+            let actor = actor.ok_or("actor required")?;
+            if state.mode != GameMode::TwoPlayer {
+                return Err("joining is only available in two-player mode");
+            }
+            if state.finished {
+                return Err("game is finished");
+            }
+            if state.white_player == Some(actor) {
+                return Err("white player cannot join as black");
+            }
+            if state.black_player.is_some() {
+                return Err("black is already occupied");
+            }
+            state.black_player = Some(actor);
         }
         ChessAction::Square(raw) => {
             if state.finished {
@@ -495,6 +726,9 @@ fn transition(mut state: ChessState, action: ChessAction) -> Result<ChessState, 
             let square = Square::from_raw(raw).ok_or("invalid square")?;
             let engine_square = engine_square(square);
             let turn = state.board.side_to_move();
+            if !state.can_play(actor, turn) {
+                return Err("not your turn");
+            }
             match state.selected {
                 None => {
                     if state.board.color_on(engine_square) == Some(turn) {
@@ -508,27 +742,67 @@ fn transition(mut state: ChessState, action: ChessAction) -> Result<ChessState, 
                     state.selected = Some(square);
                 }
                 Some(from) if legal_move(&state.board, from, square) => {
-                    let from_coordinate = from.coordinate();
-                    let to_coordinate = square.coordinate();
                     let mv = legal_move_for(&state.board, from, square).ok_or("illegal move")?;
-                    let notation = display_uci_move(&state.board, mv).to_string();
-                    state.history.push(ChessPosition {
-                        board: state.board.clone(),
-                    });
-                    state.board.try_play(mv).map_err(|_| "illegal move")?;
-                    state.selected = None;
-                    state
-                        .moves
-                        .push(if notation == format!("{from_coordinate}{to_coordinate}") {
-                            format!("{from_coordinate}-{to_coordinate}")
-                        } else {
-                            notation
-                        });
+                    apply_move(&mut state, mv)?;
                 }
                 Some(_) => return Err("illegal move"),
             }
         }
     }
+    Ok(state)
+}
+
+fn ensure_manager(state: &ChessState, actor: Option<UserId>) -> Result<(), &'static str> {
+    match (state.owner, actor) {
+        (Some(owner), Some(actor)) if owner != actor => Err("only the game creator can do that"),
+        _ => Ok(()),
+    }
+}
+
+fn ensure_participant(state: &ChessState, actor: Option<UserId>) -> Result<(), &'static str> {
+    match actor {
+        Some(actor)
+            if !state.is_participant(actor)
+                && !(state.owner.is_none()
+                    && state.white_player.is_none()
+                    && state.black_player.is_none()) =>
+        {
+            Err("only a player can do that")
+        }
+        _ => Ok(()),
+    }
+}
+
+fn apply_move(state: &mut ChessState, mv: cozy_chess::Move) -> Result<(), &'static str> {
+    let from = mv.from;
+    let to = mv.to;
+    let from_coordinate = format!("{from}");
+    let to_coordinate = format!("{to}");
+    let notation = display_uci_move(&state.board, mv).to_string();
+    state.history.push(ChessPosition {
+        board: state.board.clone(),
+    });
+    state.board.try_play(mv).map_err(|_| "illegal move")?;
+    state.selected = None;
+    state
+        .moves
+        .push(if notation == format!("{from_coordinate}{to_coordinate}") {
+            format!("{from_coordinate}-{to_coordinate}")
+        } else {
+            notation
+        });
+    Ok(())
+}
+
+fn apply_engine_move(mut state: ChessState, uci: &str) -> Result<ChessState, &'static str> {
+    if !state.should_engine_move() {
+        return Err("engine is not to move");
+    }
+    let mv = parse_uci_move(&state.board, uci).map_err(|_| "engine returned an invalid move")?;
+    if !state.board.is_legal(mv) {
+        return Err("engine returned an illegal move");
+    }
+    apply_move(&mut state, mv)?;
     Ok(state)
 }
 
@@ -585,6 +859,7 @@ fn ui_kind(piece: EnginePiece) -> Kind {
 #[derive(Clone, Debug, PartialEq)]
 enum ChessAction {
     Square(u8),
+    JoinBlack,
     Reset,
     FlipBoard,
     Undo,
@@ -596,6 +871,9 @@ struct ChessState {
     board: ChessBoard,
     selected: Option<Square>,
     owner: Option<UserId>,
+    mode: GameMode,
+    white_player: Option<UserId>,
+    black_player: Option<UserId>,
     history: Vec<ChessPosition>,
     moves: Vec<String>,
     flipped: bool,
@@ -609,15 +887,47 @@ struct ChessPosition {
 
 impl ChessState {
     fn new(owner: Option<UserId>) -> Self {
+        Self::with_mode(owner, GameMode::TwoPlayer)
+    }
+
+    fn with_mode(owner: Option<UserId>, mode: GameMode) -> Self {
         Self {
             board: ChessBoard::default(),
             selected: None,
             owner,
+            mode,
+            white_player: owner,
+            black_player: None,
             history: Vec::new(),
             moves: Vec::new(),
             flipped: false,
             finished: false,
         }
+    }
+
+    fn is_participant(&self, actor: UserId) -> bool {
+        self.white_player == Some(actor) || self.black_player == Some(actor)
+    }
+
+    fn can_play(&self, actor: Option<UserId>, color: EngineColor) -> bool {
+        if actor.is_none() {
+            return true;
+        }
+        if self.mode == GameMode::Stockfish && color == EngineColor::Black {
+            return false;
+        }
+        let player = match color {
+            EngineColor::White => self.white_player,
+            EngineColor::Black => self.black_player,
+        };
+        player.is_none() || player == actor
+    }
+
+    fn should_engine_move(&self) -> bool {
+        self.mode == GameMode::Stockfish
+            && self.board.side_to_move() == EngineColor::Black
+            && !self.finished
+            && self.board.status() == GameStatus::Ongoing
     }
 }
 
@@ -758,7 +1068,7 @@ mod tests {
             &registry,
             ViewId::new(1),
             Revision::INITIAL,
-            &ChessState::new(None),
+            &ChessState::with_mode(None, GameMode::Stockfish),
             &reference_emoji_palette(),
         )
         .unwrap();
@@ -771,8 +1081,11 @@ mod tests {
 
     #[test]
     fn selecting_a_piece_keeps_the_same_action_grid() {
-        let selected =
-            transition(ChessState::new(None), ChessAction::Square(square("d1").0)).unwrap();
+        let selected = transition(
+            ChessState::with_mode(None, GameMode::Stockfish),
+            ChessAction::Square(square("d1").0),
+        )
+        .unwrap();
         let registry = ActionRegistry::new();
         let rendered = render_game(
             &registry,
@@ -814,6 +1127,98 @@ mod tests {
         assert_eq!(
             visible_moves(&["e2-e4".to_owned(), "e7-e5".to_owned(), "g1-f3".to_owned(),]),
             "…  e7-e5  g1-f3"
+        );
+    }
+
+    #[test]
+    fn requested_mode_defaults_to_engine_in_private_chats_and_pvp_in_groups() {
+        assert_eq!(requested_mode("/chess", true), GameMode::Stockfish);
+        assert_eq!(requested_mode("/chess", false), GameMode::TwoPlayer);
+        assert_eq!(requested_mode("/chess pvp", true), GameMode::TwoPlayer);
+        assert_eq!(requested_mode("/chess bot", false), GameMode::Stockfish);
+    }
+
+    #[test]
+    fn two_player_mode_adds_one_stable_join_action() {
+        let registry = ActionRegistry::new();
+        let rendered = render_game(
+            &registry,
+            ViewId::new(1),
+            Revision::INITIAL,
+            &ChessState::new(None),
+            &reference_emoji_palette(),
+        )
+        .unwrap();
+        assert_eq!(rendered.action_tokens.len(), 67);
+    }
+
+    #[test]
+    fn black_join_is_bound_to_one_player_and_cannot_replace_it() {
+        let first = UserId(11);
+        let second = UserId(12);
+        let state = ChessState::new(Some(UserId(10)));
+        let state = transition_for_actor(state, Some(first), ChessAction::JoinBlack).unwrap();
+        assert_eq!(state.black_player, Some(first));
+        assert_eq!(
+            transition_for_actor(state.clone(), Some(second), ChessAction::JoinBlack),
+            Err("black is already occupied")
+        );
+        let state = play(state, "e2", "e4");
+        assert_eq!(
+            transition_for_actor(state, Some(first), ChessAction::Square(square("e7").0))
+                .map(|state| state.selected),
+            Ok(Some(square("e7")))
+        );
+    }
+
+    #[test]
+    fn stockfish_mode_rejects_external_black_moves() {
+        let state = ChessState::with_mode(Some(UserId(10)), GameMode::Stockfish);
+        let state = play(state, "e2", "e4");
+        assert_eq!(
+            transition_for_actor(state, Some(UserId(10)), ChessAction::Square(square("e7").0)),
+            Err("not your turn")
+        );
+    }
+
+    #[test]
+    fn engine_undo_returns_to_the_human_turn() {
+        let state = ChessState::with_mode(Some(UserId(10)), GameMode::Stockfish);
+        let state = play(state, "e2", "e4");
+        let state = apply_engine_move(state, "e7e5").unwrap();
+        let state = transition_for_actor(state, Some(UserId(10)), ChessAction::Undo).unwrap();
+        assert_eq!(state.board.side_to_move(), EngineColor::White);
+        assert!(state.moves.is_empty());
+    }
+
+    #[test]
+    fn engine_analysis_prefers_the_deepest_primary_line() {
+        let shallow = AnalysisInfo {
+            depth: Some(8),
+            seldepth: None,
+            score: Some(Score::Centipawns(12)),
+            pv: vec!["e7e5".to_owned()],
+            nodes: None,
+            nps: None,
+            time_ms: None,
+            hashfull: None,
+            multipv: Some(1),
+            message: None,
+        };
+        let deepest = AnalysisInfo {
+            depth: Some(12),
+            score: Some(Score::Centipawns(34)),
+            ..shallow.clone()
+        };
+        let alternative = AnalysisInfo {
+            multipv: Some(2),
+            depth: Some(99),
+            score: Some(Score::Centipawns(900)),
+            ..deepest.clone()
+        };
+        assert_eq!(
+            deepest_score(&[shallow, alternative, deepest]),
+            Some(Score::Centipawns(34))
         );
     }
 

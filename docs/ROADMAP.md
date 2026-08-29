@@ -41,6 +41,8 @@ surface.
 - [x] latest-wins pending projection admission
 - [ ] counter example
 - [x] chess reference application in `crates/teloxide-ui-chess`
+- [x] Stockfish-backed computer mode through a Rust UCI/analysis adapter
+- [x] two-player group-chat mode with server-side seat binding
 
 The chess board is the first table primitive: it uses a compact, non-striped
 Rich Message table with Telegram's native checkerboard background and one

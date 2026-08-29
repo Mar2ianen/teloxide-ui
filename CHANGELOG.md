@@ -9,6 +9,12 @@ the first explicitly stabilized release.
 
 ### Added
 
+- `lazychess` UCI/analysis integration for Stockfish-backed computer games;
+  the adapter captures the best move and primary-line evaluation while the
+  authoritative application rules remain in `cozy-chess`.
+- Chat-aware chess modes: private `/chess` versus Stockfish, group `/chess`
+  for two players, explicit `/chess pvp` and `/chess bot` selectors, and a
+  server-validated Black-seat claim.
 - Initial repository architecture.
 - MIT license.
 - Project and agent documentation.

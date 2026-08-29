@@ -49,6 +49,28 @@ check, checkmate/stalemate detection, and draw rules. The rules engine remains
 an application dependency; none of these domain rules are part of the
 UI-runtime crate.
 
+For computer play, the application uses
+[`lazychess`](https://crates.io/crates/lazychess) as a Rust UCI and analysis
+adapter around an externally installed Stockfish binary. The adapter returns
+the best UCI move and the deepest primary-line score. The engine call runs in
+`spawn_blocking`, while the store is only accessed before and after the call;
+the engine never runs from `view()` and no state lock crosses the calculation.
+
+The default modes are intentionally chat-aware: private `/chess` starts
+human-as-White versus Stockfish, while group `/chess` starts a two-player
+game. `/chess pvp` and `/chess bot` make the choice explicit. In two-player
+mode the creator owns White and one other Telegram user can claim Black. A
+seat claim is an optimistic state transition, so two simultaneous claims leave
+only one committed Black player. In engine mode the external user can never
+submit a Black move; only the engine transition can do so. Undo removes the
+last human/engine pair in engine mode so the next visible turn remains White.
+
+The engine path is configured with `STOCKFISH_PATH`. Search uses
+`STOCKFISH_MOVETIME_MS` (100–5000 ms, default 350) unless `STOCKFISH_DEPTH`
+(1–32) is set. This keeps deployment choices out of the source while keeping
+the rules, callback protocol, fixed board geometry, and authority checks in
+code.
+
 ## Run it
 
 Create or select a test bot with BotFather, then run the example with its token
