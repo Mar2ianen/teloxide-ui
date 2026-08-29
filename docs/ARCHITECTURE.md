@@ -313,9 +313,10 @@ Callback acknowledgement must not wait for arbitrary rendering latency.
 The runtime should provide a safe default empty acknowledgement and allow an
 explicit toast or alert result.
 
-The callback dispatcher and automatic ACK path are Phase 1 follow-up work; the
-MVP currently provides the registry and its validation contract, leaving update
-routing and acknowledgement policy to the application.
+The callback dispatcher and automatic ACK path remain application-owned in the
+core MVP. `examples/chess.rs` demonstrates the intended safe ordering: it sends
+the empty ACK through the shared outbound queue before resolving the action or
+starting projection.
 
 ## 11. Effects
 

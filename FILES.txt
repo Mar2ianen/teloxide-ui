@@ -13,6 +13,7 @@ LICENSE
 README.md
 SECURITY.md
 docs/ARCHITECTURE.md
+docs/CHESS_REFERENCE.md
 docs/DESIGN_NOTES.md
 docs/ROADMAP.md
 docs/TELOXIDE_BOUNDARY.md
@@ -26,3 +27,4 @@ src/node.rs
 src/render.rs
 src/surface.rs
 src/store.rs
+examples/chess.rs

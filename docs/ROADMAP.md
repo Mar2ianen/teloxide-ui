@@ -40,12 +40,13 @@ surface.
 - [x] per-surface outbound serial lane
 - [x] latest-wins pending projection admission
 - [ ] counter example
-- [ ] chess reference example
+- [x] chess reference example
 
 Phase 1 exit condition: rapid concurrent chess clicks cannot produce an older
 visible board after a newer committed state. The current worker proves the
-surface queue boundary, but the callback dispatcher and reference application
-needed for this end-to-end exit condition are not implemented yet.
+surface queue boundary and `examples/chess.rs` exercises the end-to-end
+application flow. A dedicated concurrent Telegram projection test remains
+follow-up work.
 
 ## Phase 2 — persistence and multi-surface effects
 

@@ -20,6 +20,8 @@ the first explicitly stabilized release.
 - Optimistic-concurrency `InMemoryUiStore`.
 - Rich Message rendering for the initial semantic UI nodes.
 - `SurfaceWorker` with one serial/latest-wins outbound lane per surface.
+- Chess reference application with server-side board state, opaque callbacks,
+  immediate ACK, CAS transitions, and same-message Rich projection.
 - Pinned the teloxide dependency to fork commit `67432b14`, where `outbound`
   is an explicit opt-in feature.
 

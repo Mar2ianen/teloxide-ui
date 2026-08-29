@@ -79,8 +79,10 @@ This crate aims to provide the missing application layer:
 The current MVP already provides the semantic `Ui` builder, versioned opaque
 action registry, actor/TTL/stale checks, an optimistic in-memory `UiStore`, a
 Rich Message renderer, and a per-surface worker using teloxide's outbound
-queue. Callback dispatch/ACK, persistence, examples, and Drafter effects are
-still intentionally outside this first slice.
+queue. Callback dispatch/ACK remains application-owned for now; the chess
+reference example demonstrates that complete flow without putting it into the
+core runtime. Persistence and Drafter effects are still outside this first
+slice.
 
 ## Non-goals
 
@@ -242,6 +244,14 @@ flowchart TD
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the detailed runtime
 contract.
 
+## Chess reference
+
+The first application on top of the kit is [`examples/chess.rs`](examples/chess.rs).
+It renders an 8×8 board as Rich Message button rows, stores the board on the
+server, acknowledges callbacks before projection, and edits one Telegram
+message through `SurfaceWorker`. The complete runbook and deliberate MVP rule
+scope are in [`docs/CHESS_REFERENCE.md`](docs/CHESS_REFERENCE.md).
+
 ## Relationship with teloxide
 
 This project depends on teloxide; it does not live inside teloxide.
@@ -397,10 +407,11 @@ Implemented MVP:
 - optimistic-concurrency in-memory store;
 - Rich Message renderer;
 - per-surface serialized projection through teloxide `OutboundQueue`;
-- latest-wins pending render admission.
+- latest-wins pending render admission;
+- chess reference application.
 
 Callback dispatch/ACK, persistence, durable outbox recovery, legacy rendering,
-Drafter effects, and counter/chess reference applications come later.
+Drafter effects, and the counter reference application come later.
 
 See [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
