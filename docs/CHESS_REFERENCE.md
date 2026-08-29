@@ -5,12 +5,14 @@ It reproduces the important interaction model of Telegram's Rich Message
 chess demonstration: one message contains the board, every enabled cell is a
 native Rich Message button, a click arrives as a callback, and the bot edits
 the same message with the next complete representation. The example uses a
-compact striped Rich Message table for the checkerboard and transparent flat
-2D custom emoji from
-[`teloxide_ui_chess_by_testteloxideui_bot`](https://t.me/addemoji/teloxide_ui_chess_by_testteloxideui_bot)
-for pieces and move markers. Empty base cells are native table cells; buttons
-are added to occupied cells and to legal destinations. Custom emoji labels
-retain valid Unicode fallbacks for clients that cannot display the set.
+compact striped Rich Message table. Every board cell is a complete 100×100
+custom emoji sprite from
+[`teloxide_ui_chess_v2_by_testteloxideui_bot`](https://t.me/addemoji/teloxide_ui_chess_v2_by_testteloxideui_bot):
+the tile background, optional state marker, and optional piece are composited
+into one label. All 64 cells are compact `link` buttons so the colored cells
+remain adjacent while each click still resolves through the server-side
+action registry. Custom emoji labels retain valid Unicode fallbacks for
+clients that cannot display the set.
 
 The reference follows this flow:
 
@@ -63,14 +65,12 @@ documentation](https://core.telegram.org/bots/api). The reference app keeps
 the transport adapter in teloxide and keeps game state, action policy, render
 composition, and surface mapping in the application layer.
 
-The board is a compact striped Rich Message table. Occupied cells and legal
-destinations are callback buttons with `link` style, while empty base cells
-are left as plain table cells so the table owns the checkerboard background
-and spacing. This is the important distinction from a grid of full-cell
-emoji-buttons: button content does not determine the width of every empty
-cell. Rank labels are rendered on both sides of the board, and file labels are
-rendered above and below it. The projection order is board, turn status, move
-history, and controls, matching the reference.
+The board is a compact striped Rich Message table whose 64 full-cell emoji
+buttons provide the checkerboard surface. Compact mode removes the large
+inter-cell spacing seen in the first button-grid experiment. Rank labels are
+rendered on both sides of the board, and file labels are rendered above and
+below it. The projection order is board, turn status, move history, and
+controls, matching the reference.
 Coordinate gutters, board flipping, undo, finish, and new-game controls are
 part of the projection. The view marks the selected piece and
 legal destinations, and the server recomputes legality during the callback

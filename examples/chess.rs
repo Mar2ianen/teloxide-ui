@@ -25,8 +25,6 @@ const ACTION_TTL: Duration = Duration::from_secs(30 * 60);
 #[derive(Clone)]
 struct ChessEmojiPalette {
     ids: [&'static str; 104],
-    pieces: HashMap<Piece, ButtonLabel>,
-    states: [[&'static str; 2]; 3],
 }
 
 impl ChessEmojiPalette {
@@ -36,36 +34,18 @@ impl ChessEmojiPalette {
         light: bool,
         piece: Option<Piece>,
     ) -> Option<ButtonLabel> {
-        if let Some(piece) = piece {
-            // Telegram validates the fallback as an emoji in rich buttons;
-            // chess glyphs such as ♙ are not accepted on every client.
-            let fallback = match piece.color {
-                Color::White => "⚪",
-                Color::Black => "⚫",
-            };
-            if matches!(visual, CellVisual::Base | CellVisual::Legal) {
-                return Some(
-                    self.pieces
-                        .get(&piece)
-                        .cloned()
-                        .unwrap_or_else(|| ButtonLabel::from(fallback)),
-                );
+        // Every board cell is a complete custom-emoji sprite. This keeps the
+        // checkerboard background and the piece in one compact-table cell;
+        // native Empty cells cannot carry a custom emoji and lose the color.
+        let index = visual.index() * 26 + usize::from(light) * 13 + piece_index(piece);
+        let fallback = piece.map_or(if light { "⬜" } else { "⬛" }, |piece| {
+            if piece.color == Color::White {
+                "⚪"
+            } else {
+                "⚫"
             }
-
-            let index = visual.index() * 26 + usize::from(light) * 13 + piece_index(Some(piece));
-            return Some(ButtonLabel::custom_emoji(self.ids[index], fallback));
-        }
-
-        if visual == CellVisual::Base {
-            // Native striped table cells render the empty checkerboard squares.
-            // There is no button until this square becomes a legal destination.
-            return None;
-        }
-
-        Some(ButtonLabel::custom_emoji(
-            self.states[visual.index() - 1][usize::from(light)],
-            if light { "⬜" } else { "⬛" },
-        ))
+        });
+        Some(ButtonLabel::custom_emoji(self.ids[index], fallback))
     }
 }
 
@@ -252,97 +232,6 @@ fn reference_emoji_palette() -> ChessEmojiPalette {
             "5229053898978798305",
             "5228939644258789499",
             "5231159188868077127",
-        ],
-        pieces: HashMap::from([
-            (
-                Piece {
-                    color: Color::White,
-                    kind: Kind::Pawn,
-                },
-                ButtonLabel::custom_emoji("5228706161246642160", "⚪"),
-            ),
-            (
-                Piece {
-                    color: Color::White,
-                    kind: Kind::Knight,
-                },
-                ButtonLabel::custom_emoji("5228737651946858079", "⚪"),
-            ),
-            (
-                Piece {
-                    color: Color::White,
-                    kind: Kind::Bishop,
-                },
-                ButtonLabel::custom_emoji("5228900139149603713", "⚪"),
-            ),
-            (
-                Piece {
-                    color: Color::White,
-                    kind: Kind::Rook,
-                },
-                ButtonLabel::custom_emoji("5228764658701214476", "⚪"),
-            ),
-            (
-                Piece {
-                    color: Color::White,
-                    kind: Kind::Queen,
-                },
-                ButtonLabel::custom_emoji("5229122957757949016", "⚪"),
-            ),
-            (
-                Piece {
-                    color: Color::White,
-                    kind: Kind::King,
-                },
-                ButtonLabel::custom_emoji("5228868553960106840", "⚪"),
-            ),
-            (
-                Piece {
-                    color: Color::Black,
-                    kind: Kind::Pawn,
-                },
-                ButtonLabel::custom_emoji("5231291748738701863", "⚫"),
-            ),
-            (
-                Piece {
-                    color: Color::Black,
-                    kind: Kind::Knight,
-                },
-                ButtonLabel::custom_emoji("5228976370524139940", "⚫"),
-            ),
-            (
-                Piece {
-                    color: Color::Black,
-                    kind: Kind::Bishop,
-                },
-                ButtonLabel::custom_emoji("5229157983216248474", "⚫"),
-            ),
-            (
-                Piece {
-                    color: Color::Black,
-                    kind: Kind::Rook,
-                },
-                ButtonLabel::custom_emoji("5229076176974163218", "⚫"),
-            ),
-            (
-                Piece {
-                    color: Color::Black,
-                    kind: Kind::Queen,
-                },
-                ButtonLabel::custom_emoji("5228772548556139102", "⚫"),
-            ),
-            (
-                Piece {
-                    color: Color::Black,
-                    kind: Kind::King,
-                },
-                ButtonLabel::custom_emoji("5231337923932101541", "⚫"),
-            ),
-        ]),
-        states: [
-            ["5228943294980993429", "5229164915293464312"],
-            ["5231332615352522782", "5229180544679459827"],
-            ["5229049359198361382", "5229058687867328917"],
         ],
     }
 }
@@ -578,17 +467,15 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
                 CellVisual::Base
             };
             let light = (file + rank) % 2 != 0;
-            if let Some(label) = palette.cell_label(cell_visual, light, state.board[square.index()])
-            {
-                row.push(
-                    TableCell::button(label, ChessAction::Square(square.0))
-                        // Link style removes the native rounded button chrome.
-                        .style(teloxide_ui::ButtonStyle::Link)
-                        .disabled(state.finished),
-                );
-            } else {
-                row.push(TableCell::empty());
-            }
+            let label = palette
+                .cell_label(cell_visual, light, state.board[square.index()])
+                .expect("full-cell chess sprite");
+            row.push(
+                TableCell::button(label, ChessAction::Square(square.0))
+                    // Link style removes the native rounded button chrome.
+                    .style(teloxide_ui::ButtonStyle::Link)
+                    .disabled(state.finished),
+            );
         }
         row.push(TableCell::text((rank + 1).to_string()));
         board = board.row(row);
@@ -957,7 +844,7 @@ mod tests {
     }
 
     #[test]
-    fn occupied_board_cells_have_server_actions() {
+    fn full_cell_board_cells_have_server_actions() {
         let registry = ActionRegistry::new();
         let rendered = render_game(
             &registry,
@@ -967,9 +854,10 @@ mod tests {
             &reference_emoji_palette(),
         )
         .unwrap();
-        // The compact-table projection leaves empty base squares as native
-        // cells. Only occupied squares plus the controls need action tokens.
-        assert_eq!(rendered.action_tokens.len(), 34);
+        // Every full-cell sprite is a button so Telegram can display its
+        // checkerboard background inside the compact table. The enabled flip
+        // and finish controls add two more action tokens; Undo starts disabled.
+        assert_eq!(rendered.action_tokens.len(), 66);
     }
 
     #[test]

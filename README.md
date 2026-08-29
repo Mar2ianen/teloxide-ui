@@ -160,12 +160,11 @@ Message object and keeps the fallback text beside it for clients or surfaces
 that cannot show the custom emoji.
 
 The chess reference uses Telegram's compact striped Rich Message table for the
-checkerboard surface. Transparent flat 2D custom emoji provide the pieces;
-buttons are layered only on occupied or currently legal cells, so empty base
-cells remain native table cells instead of becoming padded emoji-buttons. The
-published piece/state palette is documented in
-[`assets/chess-emoji/README.md`](assets/chess-emoji/README.md). The complete-cell
-sprites remain available as an alternate experiment in
+checkerboard surface. Each of the 64 board cells is a complete 100×100 custom
+emoji sprite containing its tile background, optional state marker, and
+optional piece. Making every cell a compact `link` button preserves the
+reference's adjacent colored cells while keeping all cell actions server-side.
+The published full-cell palette is documented in
 [`assets/chess-emoji-reference-v2/README.md`](assets/chess-emoji-reference-v2/README.md).
 
 ### `Surface`
