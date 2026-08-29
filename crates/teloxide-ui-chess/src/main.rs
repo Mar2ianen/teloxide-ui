@@ -26,6 +26,7 @@ use teloxide_ui::{
 type HandlerError = Box<dyn Error + Send + Sync>;
 
 const ACTION_TTL: Duration = Duration::from_secs(30 * 60);
+const VISIBLE_MOVE_COUNT: usize = 2;
 
 #[derive(Clone)]
 struct ChessEmojiPalette {
@@ -640,13 +641,15 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
     // Match the reference projection order: the board is the primary visual,
     // followed by turn status, move history, and controls.
     let mut ui = Ui::column().push(board).push(Ui::blockquote(status));
-    if !state.moves.is_empty() {
-        let moves = state.moves.join("  ");
-        ui = ui.push(Ui::details(
-            format!("Moves · {moves}"),
-            [Ui::paragraph(moves)],
-        ));
-    }
+    // Keep the details block present from the first render. Its summary and
+    // body show only the last two plies, so a new move does not add a block or
+    // another wrapped line to the message. The full move list remains in
+    // server state for undo and future richer history projections.
+    let moves = visible_moves(&state.moves);
+    ui = ui.push(Ui::details(
+        format!("Moves · {moves}"),
+        [Ui::paragraph(moves)],
+    ));
     ui = ui.push(
         Ui::button_row()
             .push(Ui::button("⟳ Flip board", ChessAction::FlipBoard))
@@ -656,6 +659,19 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
         ui.push(Ui::button_row().push(Ui::button("New Game", ChessAction::Reset)))
     } else {
         ui.push(Ui::button_row().push(Ui::button("⊗ Finish Game", ChessAction::Finish)))
+    }
+}
+
+fn visible_moves(moves: &[String]) -> String {
+    if moves.is_empty() {
+        return "—".to_owned();
+    }
+    let first_visible = moves.len().saturating_sub(VISIBLE_MOVE_COUNT);
+    let recent = moves[first_visible..].join("  ");
+    if first_visible == 0 {
+        recent
+    } else {
+        format!("…  {recent}")
     }
 }
 
@@ -955,6 +971,19 @@ mod tests {
         // Only occupied cells are interactive before a piece is selected; the
         // table's native header cells provide the checkerboard underneath.
         assert_eq!(rendered.action_tokens.len(), 34);
+    }
+
+    #[test]
+    fn move_history_projection_is_always_present_and_compact() {
+        assert_eq!(visible_moves(&[]), "—");
+        assert_eq!(
+            visible_moves(&["e2-e4".to_owned(), "e7-e5".to_owned()]),
+            "e2-e4  e7-e5"
+        );
+        assert_eq!(
+            visible_moves(&["e2-e4".to_owned(), "e7-e5".to_owned(), "g1-f3".to_owned(),]),
+            "…  e7-e5  g1-f3"
+        );
     }
 
     #[test]
