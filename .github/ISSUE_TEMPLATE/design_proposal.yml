@@ -1,0 +1,34 @@
+name: Design proposal
+description: Propose a runtime/public API change
+title: "[design] "
+labels: ["design"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Which application/runtime problem is not expressible today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: model
+    attributes:
+      label: Proposed model
+      description: Describe state/action/surface semantics, not only syntax.
+    validations:
+      required: true
+
+  - type: textarea
+    id: invariants
+    attributes:
+      label: Invariants and failure semantics
+      description: Staleness, ordering, retries, cancellation, persistence.
+    validations:
+      required: true
+
+  - type: textarea
+    id: boundary
+    attributes:
+      label: Why teloxide-ui rather than teloxide?
+      description: Or explain the generic teloxide primitive that is required.

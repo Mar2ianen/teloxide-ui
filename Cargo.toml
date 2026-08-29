@@ -1,0 +1,22 @@
+[package]
+name = "teloxide-ui"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT"
+description = "Declarative server-driven UI runtime for Telegram bots built on teloxide"
+repository = "https://github.com/Mar2ianen/teloxide-ui"
+keywords = ["telegram", "teloxide", "bot", "ui", "server-driven"]
+categories = ["web-programming", "asynchronous"]
+publish = false
+
+[dependencies]
+teloxide = { git = "https://github.com/Mar2ianen/teloxide-fork", rev = "26d80f5f88de5e9ea97be22490766cdeb3925265", default-features = false, features = ["outbound"] }
+tokio = { version = "1.39", default-features = false, features = ["sync"] }
+uuid = { version = "1.1", features = ["v4"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "test-util"] }
+
+[features]
+default = []
