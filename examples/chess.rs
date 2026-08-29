@@ -37,7 +37,12 @@ impl ChessEmojiPalette {
         piece: Option<Piece>,
     ) -> Option<ButtonLabel> {
         if let Some(piece) = piece {
-            let fallback = piece.symbol();
+            // Telegram validates the fallback as an emoji in rich buttons;
+            // chess glyphs such as ♙ are not accepted on every client.
+            let fallback = match piece.color {
+                Color::White => "⚪",
+                Color::Black => "⚫",
+            };
             if matches!(visual, CellVisual::Base | CellVisual::Legal) {
                 return Some(
                     self.pieces
@@ -59,7 +64,7 @@ impl ChessEmojiPalette {
 
         Some(ButtonLabel::custom_emoji(
             self.states[visual.index() - 1][usize::from(light)],
-            "•",
+            if light { "⬜" } else { "⬛" },
         ))
     }
 }
@@ -820,25 +825,6 @@ impl ChessState {
 struct Piece {
     color: Color,
     kind: Kind,
-}
-
-impl Piece {
-    fn symbol(self) -> &'static str {
-        match (self.color, self.kind) {
-            (Color::White, Kind::Pawn) => "♙",
-            (Color::White, Kind::Knight) => "♘",
-            (Color::White, Kind::Bishop) => "♗",
-            (Color::White, Kind::Rook) => "♖",
-            (Color::White, Kind::Queen) => "♕",
-            (Color::White, Kind::King) => "♔",
-            (Color::Black, Kind::Pawn) => "♟",
-            (Color::Black, Kind::Knight) => "♞",
-            (Color::Black, Kind::Bishop) => "♝",
-            (Color::Black, Kind::Rook) => "♜",
-            (Color::Black, Kind::Queen) => "♛",
-            (Color::Black, Kind::King) => "♚",
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
