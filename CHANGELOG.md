@@ -18,6 +18,8 @@ the first explicitly stabilized release.
 - Group chess now projects White to the shared message and Black to a targeted
   ephemeral Rich Message; each surface keeps its own board orientation while
   all projections continue to derive from one authoritative game state.
+- PVP turn status now shows the current player's bounded Telegram username or
+  name, with a color fallback when profile identity is unavailable.
 - Initial repository architecture.
 - MIT license.
 - Project and agent documentation.

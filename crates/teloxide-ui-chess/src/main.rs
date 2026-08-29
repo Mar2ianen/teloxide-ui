@@ -17,7 +17,7 @@ use teloxide::{
     payloads::SendRichMessageSetters,
     prelude::Dispatcher,
     requests::Requester,
-    types::{CallbackQuery, ChatId, EphemeralMessageParameters, Message, Update, UserId},
+    types::{CallbackQuery, ChatId, EphemeralMessageParameters, Message, Update, User, UserId},
     Bot,
 };
 use teloxide_ui::{
@@ -307,6 +307,7 @@ impl ChessApp {
         self.start_game_in_chat(
             message.chat.id,
             message.from.as_ref().map(|user| user.id),
+            message.from.as_ref().map(player_label),
             mode,
         )
         .await
@@ -316,10 +317,11 @@ impl ChessApp {
         &self,
         chat_id: ChatId,
         owner: Option<UserId>,
+        owner_label: Option<String>,
         mode: GameMode,
     ) -> Result<(), HandlerError> {
         let view_id = ViewId::fresh();
-        let state = ChessState::with_mode(owner, mode);
+        let state = ChessState::with_mode_and_owner_label(owner, owner_label, mode);
         let palette = self.emoji_palette();
         let rendered = render_game(
             &self.registry,
@@ -489,10 +491,13 @@ impl ChessApp {
         }
 
         let is_join_black = matches!(&action, ChessAction::JoinBlack);
-        let next_state = match transition_for_actor(record.state, Some(query.from.id), action) {
+        let mut next_state = match transition_for_actor(record.state, Some(query.from.id), action) {
             Ok(state) => state,
             Err(_) => return Ok(()),
         };
+        if is_join_black {
+            next_state.black_player_label = Some(player_label(&query.from));
+        }
 
         // CAS makes two concurrent clicks on one revision deterministic. The
         // loser observes a conflict and leaves the winner's projection alone.
@@ -609,7 +614,7 @@ async fn main() -> Result<(), HandlerError> {
     if let Some(raw_chat_id) = std::env::var_os("TELOXIDE_CHESS_AUTOSTART_CHAT_ID") {
         let chat_id = ChatId(raw_chat_id.to_string_lossy().parse()?);
         if app.stockfish.is_some() {
-            app.start_game_in_chat(chat_id, None, GameMode::Stockfish)
+            app.start_game_in_chat(chat_id, None, None, GameMode::Stockfish)
                 .await?;
             println!("sent chess demo to chat {chat_id:?}");
         } else {
@@ -666,6 +671,18 @@ fn callback_surface(query: &CallbackQuery) -> Option<Surface> {
     }
 }
 
+const MAX_PLAYER_LABEL_CHARS: usize = 24;
+
+fn player_label(user: &User) -> String {
+    let label = user.mention().unwrap_or_else(|| user.full_name());
+    let mut chars = label.chars();
+    let mut bounded: String = chars.by_ref().take(MAX_PLAYER_LABEL_CHARS).collect();
+    if chars.next().is_some() {
+        bounded.push('…');
+    }
+    bounded
+}
+
 fn render_game(
     registry: &ActionRegistry<ChessAction>,
     view_id: ViewId,
@@ -710,7 +727,10 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette, flipped: bool) -> Ui<Ch
                 };
                 match state.mode {
                     GameMode::Stockfish => format!("Your move as {}{check}", turn.label()),
-                    GameMode::TwoPlayer => format!("{} to move{check}", turn.label()),
+                    GameMode::TwoPlayer => state.player_label(turn).map_or_else(
+                        || format!("{} to move{check}", turn.label()),
+                        |label| format!("{label} to move{check}"),
+                    ),
                 }
             }
         }
@@ -840,8 +860,9 @@ fn transition_for_actor(
         ChessAction::Reset => {
             ensure_manager(&state, actor)?;
             let owner = state.owner;
+            let owner_label = state.white_player_label.clone();
             let mode = state.mode;
-            state = ChessState::with_mode(owner, mode);
+            state = ChessState::with_mode_and_owner_label(owner, owner_label, mode);
         }
         ChessAction::FlipBoard => {
             // Board orientation belongs to the rendered surface, not the
@@ -1043,7 +1064,9 @@ struct ChessState {
     owner: Option<UserId>,
     mode: GameMode,
     white_player: Option<UserId>,
+    white_player_label: Option<String>,
     black_player: Option<UserId>,
+    black_player_label: Option<String>,
     history: Vec<ChessPosition>,
     moves: Vec<String>,
     finished: bool,
@@ -1060,13 +1083,23 @@ impl ChessState {
     }
 
     fn with_mode(owner: Option<UserId>, mode: GameMode) -> Self {
+        Self::with_mode_and_owner_label(owner, None, mode)
+    }
+
+    fn with_mode_and_owner_label(
+        owner: Option<UserId>,
+        owner_label: Option<String>,
+        mode: GameMode,
+    ) -> Self {
         Self {
             board: ChessBoard::default(),
             selected: None,
             owner,
             mode,
             white_player: owner,
+            white_player_label: owner_label,
             black_player: None,
+            black_player_label: None,
             history: Vec::new(),
             moves: Vec::new(),
             finished: false,
@@ -1096,6 +1129,13 @@ impl ChessState {
             && self.board.side_to_move() == EngineColor::Black
             && !self.finished
             && self.board.status() == GameStatus::Ongoing
+    }
+
+    fn player_label(&self, color: Color) -> Option<&str> {
+        match color {
+            Color::White => self.white_player_label.as_deref(),
+            Color::Black => self.black_player_label.as_deref(),
+        }
     }
 }
 
@@ -1326,6 +1366,25 @@ mod tests {
         assert_eq!(requested_mode("/chess", false), GameMode::TwoPlayer);
         assert_eq!(requested_mode("/chess pvp", true), GameMode::TwoPlayer);
         assert_eq!(requested_mode("/chess bot", false), GameMode::Stockfish);
+    }
+
+    #[test]
+    fn two_player_status_uses_the_player_label_for_the_current_turn() {
+        let mut state = ChessState::new(Some(UserId(10)));
+        state.white_player_label = Some("@white_player".to_owned());
+        let ui = view(&state, &reference_emoji_palette(), false);
+        assert_eq!(
+            ui.nodes[1],
+            UiNode::Blockquote("@white_player to move".to_owned())
+        );
+
+        let mut state = play(state, "e2", "e4");
+        state.black_player_label = Some("@black_player".to_owned());
+        let ui = view(&state, &reference_emoji_palette(), false);
+        assert_eq!(
+            ui.nodes[1],
+            UiNode::Blockquote("@black_player to move".to_owned())
+        );
     }
 
     #[test]

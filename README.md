@@ -291,6 +291,10 @@ the bottom; subsequent edits update both surfaces from the same authoritative
 state. Board flipping is stored per surface, so one player can flip without
 reorienting the other player's view.
 
+The PVP status line names the current Telegram player, falling back to the
+side color when no profile name is available. Names are bounded before
+rendering so a long profile name cannot cause avoidable layout changes.
+
 ## Relationship with teloxide
 
 This project depends on teloxide; it does not live inside teloxide.
