@@ -20,6 +20,15 @@ Because empty and occupied cells use the same transparent overlay geometry, the
 board does not grow or jump when a piece is selected. Custom emoji labels
 retain valid Unicode fallbacks for clients that cannot display the set.
 
+Private engine projections use the original piece-only palette, whose `⚪`/`⚫`
+fallback metadata matches the custom emoji. Group PVP projections use plain
+Unicode chess glyphs because custom-emoji availability depends on the bot's
+entitlement and receiving client. Empty base cells use an invisible plain-text
+button rather than a `▫️` custom-emoji fallback. This preserves the stable
+64-cell action grid without showing a white placeholder when a client cannot
+resolve the custom-emoji document. PVP glyphs use emoji presentation selectors
+so Android clients render the piece symbols as icons rather than plain text.
+
 The reference follows this flow:
 
 ```text
@@ -97,6 +106,11 @@ in the `TELOXIDE_TOKEN` environment variable:
 export TELOXIDE_TOKEN="$(< /path/to/telegram-token.txt)"
 cargo run -p teloxide-ui-chess
 ```
+
+For a deterministic group/PVP smoke test, set
+`TELOXIDE_CHESS_AUTOSTART_MODE=pvp` together with
+`TELOXIDE_CHESS_AUTOSTART_CHAT_ID`. The default autostart mode remains
+Stockfish.
 
 Open the bot in Telegram and send `/chess`. Use a current Telegram client with
 Rich Message support. Stop the local process with Ctrl-C.

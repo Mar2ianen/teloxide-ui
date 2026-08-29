@@ -11,9 +11,10 @@ reference application:
 
 They are published in the Telegram custom emoji set
 [`teloxide_ui_chess_by_testteloxideui_bot`](https://t.me/addemoji/teloxide_ui_chess_by_testteloxideui_bot).
-The runtime stores the resulting custom emoji IDs in
-[`crates/teloxide-ui-chess/src/main.rs`](../../crates/teloxide-ui-chess/src/main.rs), while each label retains a
-Unicode fallback.
+The runtime stores the twelve piece-only IDs in [`piece-ids.txt`](piece-ids.txt)
+and the native overlay IDs in
+[`assets/chess-emoji-native/ids.txt`](../chess-emoji-native/ids.txt). Each
+custom-emoji label retains a Unicode fallback.
 
 The assets were generated as a transparent sprite sheet and cropped to exact
 100×100 RGBA PNG files for Telegram's static custom emoji format.

@@ -7,6 +7,11 @@ the first explicitly stabilized release.
 
 ## Unreleased
 
+- Fix chess fallback rendering by using plain chess glyphs for group PVP pieces,
+  metadata-matched piece emojis for private engine pieces, and invisible labels
+  for empty action cells.
+- Add an explicit PVP autostart mode for group smoke tests.
+
 ### Added
 
 - `lazychess` UCI/analysis integration for Stockfish-backed computer games;

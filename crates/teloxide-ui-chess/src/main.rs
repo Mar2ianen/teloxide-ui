@@ -35,6 +35,7 @@ const VISIBLE_MOVE_COUNT: usize = 2;
 const DEFAULT_ENGINE_MOVETIME_MS: u64 = 350;
 const MIN_ENGINE_MOVETIME_MS: u64 = 100;
 const MAX_ENGINE_MOVETIME_MS: u64 = 5_000;
+const INVISIBLE_EMPTY_CELL_LABEL: &str = "\u{2063}";
 
 #[derive(Debug)]
 struct EngineError(String);
@@ -118,10 +119,49 @@ fn deepest_score(analysis: &[AnalysisInfo]) -> Option<Score> {
 #[derive(Clone)]
 struct ChessEmojiPalette {
     ids: Vec<&'static str>,
+    piece_ids: Vec<&'static str>,
 }
 
 impl ChessEmojiPalette {
-    fn cell_label(&self, visual: CellVisual, piece: Option<Piece>) -> ButtonLabel {
+    fn cell_label(
+        &self,
+        visual: CellVisual,
+        piece: Option<Piece>,
+        plain_piece_fallback: bool,
+    ) -> Option<ButtonLabel> {
+        // Do not put a custom emoji in an empty base cell. The native table
+        // already owns its background, and the `▫️` fallback would otherwise
+        // become a visible white square on clients that cannot resolve the
+        // custom-emoji document. The caller still installs an invisible text
+        // button so every square remains an action target.
+        if visual == CellVisual::Base && piece.is_none() {
+            return None;
+        }
+
+        if let Some(piece) = piece {
+            // Telegram custom-emoji availability depends on both the bot's
+            // entitlement and the receiving client. PVP is primarily used in
+            // group chats, where this bot currently gets fallback glyphs
+            // instead of the published artwork. Use deterministic Unicode
+            // chess symbols there so a group board always shows real pieces.
+            if plain_piece_fallback {
+                return Some(ButtonLabel::Plain(piece_glyph(piece).to_owned()));
+            }
+
+            // Normal pieces use the published set whose metadata matches the
+            // fallback emoji. This preserves the correct degraded rendering
+            // for clients without rich custom-emoji support.
+            if matches!(visual, CellVisual::Base | CellVisual::Legal) {
+                let index = piece_index(Some(piece)) - 1;
+                let fallback = if piece.color == Color::White {
+                    "⚪"
+                } else {
+                    "⚫"
+                };
+                return Some(ButtonLabel::custom_emoji(self.piece_ids[index], fallback));
+            }
+        }
+
         let index = visual.index() * 13 + piece_index(piece);
         let fallback = match (visual, piece) {
             (CellVisual::Legal, None) => "🟢",
@@ -143,7 +183,7 @@ impl ChessEmojiPalette {
                 }),
             ) => "⚫",
         };
-        ButtonLabel::custom_emoji(self.ids[index], fallback)
+        Some(ButtonLabel::custom_emoji(self.ids[index], fallback))
     }
 }
 
@@ -220,6 +260,23 @@ const fn piece_index(piece: Option<Piece>) -> usize {
     }
 }
 
+const fn piece_glyph(piece: Piece) -> &'static str {
+    match (piece.color, piece.kind) {
+        (Color::White, Kind::Pawn) => "♙️",
+        (Color::White, Kind::Knight) => "♘️",
+        (Color::White, Kind::Bishop) => "♗️",
+        (Color::White, Kind::Rook) => "♖️",
+        (Color::White, Kind::Queen) => "♕️",
+        (Color::White, Kind::King) => "♔️",
+        (Color::Black, Kind::Pawn) => "♟️",
+        (Color::Black, Kind::Knight) => "♞️",
+        (Color::Black, Kind::Bishop) => "♝️",
+        (Color::Black, Kind::Rook) => "♜️",
+        (Color::Black, Kind::Queen) => "♛️",
+        (Color::Black, Kind::King) => "♚️",
+    }
+}
+
 fn reference_emoji_palette() -> ChessEmojiPalette {
     // Every board cell is a transparent, code-composited overlay. Telegram's
     // native table supplies the alternating square background; this keeps the
@@ -236,7 +293,16 @@ fn reference_emoji_palette() -> ChessEmojiPalette {
         52,
         "generated chess emoji palette must be complete"
     );
-    ChessEmojiPalette { ids }
+    let piece_ids: Vec<_> = include_str!("../../../assets/chess-emoji/piece-ids.txt")
+        .lines()
+        .filter(|line| !line.is_empty())
+        .collect();
+    assert_eq!(
+        piece_ids.len(),
+        12,
+        "piece-only chess emoji palette must be complete"
+    );
+    ChessEmojiPalette { ids, piece_ids }
 }
 
 #[derive(Clone)]
@@ -263,6 +329,13 @@ fn requested_mode(command: &str, is_private_chat: bool) -> GameMode {
         Some("bot" | "stockfish" | "solo") => GameMode::Stockfish,
         _ if is_private_chat => GameMode::Stockfish,
         _ => GameMode::TwoPlayer,
+    }
+}
+
+fn autostart_mode() -> GameMode {
+    match std::env::var("TELOXIDE_CHESS_AUTOSTART_MODE") {
+        Ok(mode) if mode.eq_ignore_ascii_case("pvp") => GameMode::TwoPlayer,
+        _ => GameMode::Stockfish,
     }
 }
 
@@ -521,6 +594,8 @@ impl ChessApp {
         }
 
         let is_join_black = matches!(&action, ChessAction::JoinBlack);
+        let white_was_unclaimed = record.state.white_player.is_none();
+        let black_was_unclaimed = record.state.black_player.is_none();
         let mut next_state = match transition_for_actor(record.state, Some(query.from.id), action) {
             Ok(state) => state,
             Err(error) => {
@@ -530,6 +605,12 @@ impl ChessApp {
             }
         };
         if is_join_black {
+            next_state.black_player_label = Some(player_label(&query.from));
+        }
+        if white_was_unclaimed && next_state.white_player == Some(query.from.id) {
+            next_state.white_player_label = Some(player_label(&query.from));
+        }
+        if black_was_unclaimed && next_state.black_player == Some(query.from.id) {
             next_state.black_player_label = Some(player_label(&query.from));
         }
 
@@ -656,10 +737,10 @@ async fn main() -> Result<(), HandlerError> {
     app.outbound.get_me().await?;
     if let Some(raw_chat_id) = std::env::var_os("TELOXIDE_CHESS_AUTOSTART_CHAT_ID") {
         let chat_id = ChatId(raw_chat_id.to_string_lossy().parse()?);
-        if app.stockfish.is_some() {
-            app.start_game_in_chat(chat_id, None, None, GameMode::Stockfish)
-                .await?;
-            println!("sent chess demo to chat {chat_id:?}");
+        let mode = autostart_mode();
+        if mode == GameMode::TwoPlayer || app.stockfish.is_some() {
+            app.start_game_in_chat(chat_id, None, None, mode).await?;
+            println!("sent chess demo to chat {chat_id:?} ({mode:?})");
         } else {
             eprintln!(
                 "skipping chess autostart for {chat_id:?}: Stockfish is unavailable; use /chess pvp or configure STOCKFISH_PATH"
@@ -807,6 +888,7 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette, flipped: bool) -> Ui<Ch
     } else {
         (0..8).rev().collect()
     };
+    let plain_piece_fallback = state.mode == GameMode::TwoPlayer;
     // Each board cell is always a button carrying a transparent overlay. The
     // native table cell supplies the checkerboard background; the header flag
     // is deliberately applied to every light square, including empty cells.
@@ -838,14 +920,29 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette, flipped: bool) -> Ui<Ch
                 CellVisual::Base
             };
             let light = (file + rank) % 2 != 0;
-            let label = palette.cell_label(cell_visual, board_piece(&state.board, square));
-            row.push(
-                TableCell::button(label, ChessAction::Square(square.0))
-                    // Link style removes native rounded button chrome; the
-                    // table cell supplies the square background.
-                    .style(teloxide_ui::ButtonStyle::Link)
-                    .header(light),
-            );
+            let cell = palette
+                .cell_label(
+                    cell_visual,
+                    board_piece(&state.board, square),
+                    plain_piece_fallback,
+                )
+                .map_or_else(
+                    || {
+                        // Keep empty squares interactive without rendering a
+                        // fallback glyph. U+2063 is a real, non-empty Rich
+                        // Text value and occupies no visible space.
+                        TableCell::button(
+                            ButtonLabel::Plain(INVISIBLE_EMPTY_CELL_LABEL.to_owned()),
+                            ChessAction::Square(square.0),
+                        )
+                    },
+                    |label| TableCell::button(label, ChessAction::Square(square.0)),
+                )
+                // Link style removes native rounded button chrome; the
+                // table cell supplies the square background.
+                .style(teloxide_ui::ButtonStyle::Link)
+                .header(light);
+            row.push(cell);
         }
         board = board.row(row);
     }
@@ -985,6 +1082,17 @@ fn transition_for_actor(
             match state.selected {
                 None => {
                     if state.board.color_on(engine_square) == Some(turn) {
+                        if let Some(actor) = actor {
+                            match turn {
+                                EngineColor::White if state.white_player.is_none() => {
+                                    state.white_player = Some(actor);
+                                }
+                                EngineColor::Black if state.black_player.is_none() => {
+                                    state.black_player = Some(actor);
+                                }
+                                _ => {}
+                            }
+                        }
                         state.selected = Some(square);
                     } else {
                         return Err("not your piece");
@@ -1183,7 +1291,19 @@ impl ChessState {
             EngineColor::White => self.white_player,
             EngineColor::Black => self.black_player,
         };
-        player.is_none() || player == actor
+        if player == actor {
+            return true;
+        }
+        if player.is_some() {
+            return false;
+        }
+        if self.mode == GameMode::TwoPlayer {
+            return match color {
+                EngineColor::White => self.black_player != actor,
+                EngineColor::Black => self.white_player != actor,
+            };
+        }
+        true
     }
 
     fn should_engine_move(&self) -> bool {
@@ -1332,6 +1452,28 @@ mod tests {
     }
 
     #[test]
+    fn first_pvp_player_is_bound_to_white_and_cannot_join_black() {
+        let white = UserId(10);
+        let black = UserId(20);
+        let selected = transition_for_actor(
+            ChessState::new(None),
+            Some(white),
+            ChessAction::Square(square("e2").0),
+        )
+        .unwrap();
+
+        assert_eq!(selected.white_player, Some(white));
+        assert_eq!(
+            transition_for_actor(selected.clone(), Some(white), ChessAction::JoinBlack),
+            Err("white player cannot join as black")
+        );
+        assert_eq!(
+            transition_for_actor(selected, Some(black), ChessAction::Square(square("d2").0)),
+            Err("not your turn")
+        );
+    }
+
+    #[test]
     fn interactive_board_cells_have_server_actions() {
         let registry = ActionRegistry::new();
         let rendered = render_game(
@@ -1348,6 +1490,57 @@ mod tests {
         // and Finish controls add the remaining tokens; Undo is disabled at
         // the initial position.
         assert_eq!(rendered.action_tokens.len(), 66);
+    }
+
+    #[test]
+    fn empty_cells_do_not_use_visible_custom_emoji_fallbacks() {
+        let palette = reference_emoji_palette();
+        let ui = view(&ChessState::new(None), &palette, false);
+        let UiNode::Table(table) = &ui.nodes[0] else {
+            panic!("expected the board to be the first node");
+        };
+
+        let cell = match &table.rows[4][1] {
+            TableCell::Header(inner) => inner.as_ref(),
+            cell => cell,
+        };
+        assert!(matches!(
+            cell,
+            TableCell::Button(button)
+                if button.text == ButtonLabel::Plain(INVISIBLE_EMPTY_CELL_LABEL.to_owned())
+        ));
+
+        // e2 is a white pawn in the initial PVP position. Group projections
+        // use a real chess glyph instead of an unresolved custom-emoji
+        // fallback circle.
+        let cell = match &table.rows[7][5] {
+            TableCell::Header(inner) => inner.as_ref(),
+            cell => cell,
+        };
+        assert!(matches!(
+            cell,
+            TableCell::Button(button)
+                if button.text == ButtonLabel::Plain("♙️".to_owned())
+        ));
+
+        // Engine/private projections retain the published piece-only palette.
+        let private_ui = view(
+            &ChessState::with_mode(None, GameMode::Stockfish),
+            &palette,
+            false,
+        );
+        let UiNode::Table(table) = &private_ui.nodes[0] else {
+            panic!("expected the board to be the first node");
+        };
+        let cell = match &table.rows[7][5] {
+            TableCell::Header(inner) => inner.as_ref(),
+            cell => cell,
+        };
+        assert!(matches!(
+            cell,
+            TableCell::Button(button)
+                if button.text == ButtonLabel::custom_emoji(palette.piece_ids[6], "⚪")
+        ));
     }
 
     #[test]
