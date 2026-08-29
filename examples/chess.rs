@@ -10,7 +10,7 @@ use teloxide::{
     outbound::{Outbound, OutboundQueue, OutboundSettings},
     prelude::Dispatcher,
     requests::Requester,
-    types::{CallbackQuery, Message, Update, UserId},
+    types::{CallbackQuery, ChatId, Message, Update, UserId},
     Bot,
 };
 use teloxide_ui::{
@@ -265,8 +265,17 @@ impl ChessApp {
     }
 
     async fn start_game(&self, message: &Message) -> Result<(), HandlerError> {
+        self.start_game_in_chat(message.chat.id, message.from.as_ref().map(|user| user.id))
+            .await
+    }
+
+    async fn start_game_in_chat(
+        &self,
+        chat_id: ChatId,
+        owner: Option<UserId>,
+    ) -> Result<(), HandlerError> {
         let view_id = ViewId::fresh();
-        let state = ChessState::new(message.from.as_ref().map(|user| user.id));
+        let state = ChessState::new(owner);
         let palette = self.emoji_palette();
         let rendered = render_game(&self.registry, view_id, Revision::INITIAL, &state, &palette)?;
 
@@ -275,10 +284,10 @@ impl ChessApp {
         // us the concrete message surface.
         let sent = self
             .outbound
-            .send_rich_message(message.chat.id, rendered.rich_message)
+            .send_rich_message(chat_id, rendered.rich_message)
             .await?;
         let surface = Surface::Message {
-            chat_id: message.chat.id,
+            chat_id,
             message_id: sent.id,
         };
         self.store.insert(ViewRecord {
@@ -366,6 +375,11 @@ async fn main() -> Result<(), HandlerError> {
     let bot = Bot::from_env();
     let app = Arc::new(ChessApp::new(bot.clone())?);
     app.outbound.get_me().await?;
+    if let Some(raw_chat_id) = std::env::var_os("TELOXIDE_CHESS_AUTOSTART_CHAT_ID") {
+        let chat_id = ChatId(raw_chat_id.to_string_lossy().parse()?);
+        app.start_game_in_chat(chat_id, None).await?;
+        println!("sent chess demo to chat {chat_id:?}");
+    }
     println!("teloxide-ui chess demo is running; send /chess to the bot");
     let handler = teloxide::dptree::entry()
         .branch(Update::filter_message().endpoint(message_handler))
