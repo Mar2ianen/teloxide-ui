@@ -21,6 +21,9 @@ the first explicitly stabilized release.
 - PVP turn status now shows the current player's bounded Telegram profile name
   rather than the `@username` handle, with a color fallback when profile
   identity is unavailable.
+- Chess callbacks now show concise rejection feedback for stale, wrong-side,
+  and illegal moves; a human move is still projected if a later Stockfish
+  calculation fails.
 - Initial repository architecture.
 - MIT license.
 - Project and agent documentation.

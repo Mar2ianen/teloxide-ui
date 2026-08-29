@@ -14,10 +14,13 @@ use lazychess::uci::{AnalysisInfo, Score, SearchConfig, UciEngine, UciError};
 use teloxide::{
     dispatching::UpdateFilterExt,
     outbound::{Outbound, OutboundQueue, OutboundSettings},
-    payloads::SendRichMessageSetters,
+    payloads::{AnswerCallbackQuerySetters, SendRichMessageSetters},
     prelude::Dispatcher,
     requests::Requester,
-    types::{CallbackQuery, ChatId, EphemeralMessageParameters, Message, Update, User, UserId},
+    types::{
+        CallbackQuery, CallbackQueryId, ChatId, EphemeralMessageParameters, Message, Update, User,
+        UserId,
+    },
     Bot,
 };
 use teloxide_ui::{
@@ -450,25 +453,44 @@ impl ChessApp {
         Ok(())
     }
 
-    async fn handle_callback(&self, query: CallbackQuery) -> Result<(), HandlerError> {
-        // ACK is deliberately first and independent of the render path.
-        self.outbound
-            .answer_callback_query(query.id.clone())
-            .await?;
+    async fn answer_callback(
+        &self,
+        callback_query_id: CallbackQueryId,
+        text: Option<&str>,
+    ) -> Result<(), HandlerError> {
+        let request = self.outbound.answer_callback_query(callback_query_id);
+        if let Some(text) = text {
+            request.text(text).await?;
+        } else {
+            request.await?;
+        }
+        Ok(())
+    }
 
+    async fn handle_callback(&self, query: CallbackQuery) -> Result<(), HandlerError> {
         let Some(data) = query.data.as_deref() else {
+            self.answer_callback(query.id, Some("Кнопка устарела"))
+                .await?;
             return Ok(());
         };
         let Ok(token) = teloxide_ui::ActionToken::try_from(data) else {
+            self.answer_callback(query.id, Some("Кнопка устарела"))
+                .await?;
             return Ok(());
         };
         let Some(surface) = callback_surface(&query) else {
+            self.answer_callback(query.id, Some("Игра больше недоступна"))
+                .await?;
             return Ok(());
         };
         let Some((view_id, _)) = self.binding_for(&surface) else {
+            self.answer_callback(query.id, Some("Игра больше недоступна"))
+                .await?;
             return Ok(());
         };
         let Some(record) = self.store.load(view_id)? else {
+            self.answer_callback(query.id, Some("Игра больше недоступна"))
+                .await?;
             return Ok(());
         };
         let action = match self
@@ -476,7 +498,11 @@ impl ChessApp {
             .resolve(&token, query.from.id, view_id, record.revision)
         {
             Ok(record) => record.action,
-            Err(_) => return Ok(()),
+            Err(_) => {
+                self.answer_callback(query.id, Some("Кнопка устарела"))
+                    .await?;
+                return Ok(());
+            }
         };
 
         // Board orientation is a projection preference, not domain state. A
@@ -484,8 +510,12 @@ impl ChessApp {
         // and does not consume a state revision or affect the other player.
         if matches!(&action, ChessAction::FlipBoard) {
             let Some(flipped) = self.flip_surface(&surface) else {
+                self.answer_callback(query.id, Some("Поверхность игры больше недоступна"))
+                    .await?;
                 return Ok(());
             };
+            // ACK is deliberately independent of the following render.
+            self.answer_callback(query.id, None).await?;
             self.project_surface(surface, &record, flipped).await?;
             return Ok(());
         }
@@ -493,7 +523,11 @@ impl ChessApp {
         let is_join_black = matches!(&action, ChessAction::JoinBlack);
         let mut next_state = match transition_for_actor(record.state, Some(query.from.id), action) {
             Ok(state) => state,
-            Err(_) => return Ok(()),
+            Err(error) => {
+                self.answer_callback(query.id, Some(callback_error_text(error)))
+                    .await?;
+                return Ok(());
+            }
         };
         if is_join_black {
             next_state.black_player_label = Some(player_label(&query.from));
@@ -506,8 +540,17 @@ impl ChessApp {
             .compare_and_set(view_id, record.revision, next_state)
         {
             Ok(record) => record,
-            Err(_) => return Ok(()),
+            Err(_) => {
+                self.answer_callback(query.id, Some("Игра уже изменилась, нажмите ещё раз"))
+                    .await?;
+                return Ok(());
+            }
         };
+
+        // The state transition is committed before any slow ephemeral,
+        // Stockfish, or Telegram projection work. ACK remains independent of
+        // all of those effects.
+        self.answer_callback(query.id.clone(), None).await?;
 
         if is_join_black {
             if let Err(error) = self
@@ -525,7 +568,7 @@ impl ChessApp {
                         Ok(reply) => reply,
                         Err(error) => {
                             eprintln!("Stockfish move failed: {error}");
-                            return Ok(());
+                            return self.project_record(&updated).await;
                         }
                     };
                     let score = reply
@@ -538,7 +581,7 @@ impl ChessApp {
                             Ok(state) => state,
                             Err(error) => {
                                 eprintln!("Stockfish returned an illegal move: {error}");
-                                return Ok(());
+                                return self.project_record(&updated).await;
                             }
                         };
                     eprintln!("Stockfish played {} ({score})", reply.best_move);
@@ -547,7 +590,7 @@ impl ChessApp {
                         .compare_and_set(view_id, updated.revision, engine_state)
                     {
                         Ok(record) => record,
-                        Err(_) => return Ok(()),
+                        Err(_) => updated,
                     }
                 }
                 None => {
@@ -643,6 +686,12 @@ async fn message_handler(app: Arc<ChessApp>, message: Message) -> Result<(), Han
     };
     let command = text.split_whitespace().next().unwrap_or_default();
     if command == "/chess" || command.starts_with("/chess@") {
+        eprintln!(
+            "chess command received: chat_id={:?}, title={:?}, private={}",
+            message.chat.id,
+            message.chat.title(),
+            message.chat.is_private()
+        );
         if let Err(error) = app.start_game(&message).await {
             eprintln!("chess start failed: {error}");
         }
@@ -681,6 +730,19 @@ fn player_label(user: &User) -> String {
         bounded.push('…');
     }
     bounded
+}
+
+fn callback_error_text(error: &'static str) -> &'static str {
+    match error {
+        "not your turn" => "Сейчас ходит другой игрок",
+        "not your piece" => "Это не ваша фигура",
+        "illegal move" => "Так ходить нельзя",
+        "game is finished" | "game is over" => "Игра уже завершена",
+        "black is already occupied" => "Чёрный уже занят другим игроком",
+        "white player cannot join as black" => "Белые не могут занять чёрных",
+        "nothing to undo" => "Нечего отменять",
+        _ => "Действие сейчас недоступно",
+    }
 }
 
 fn render_game(
@@ -1366,6 +1428,16 @@ mod tests {
         assert_eq!(requested_mode("/chess", false), GameMode::TwoPlayer);
         assert_eq!(requested_mode("/chess pvp", true), GameMode::TwoPlayer);
         assert_eq!(requested_mode("/chess bot", false), GameMode::Stockfish);
+    }
+
+    #[test]
+    fn callback_errors_are_short_and_actionable() {
+        assert_eq!(
+            callback_error_text("not your turn"),
+            "Сейчас ходит другой игрок"
+        );
+        assert_eq!(callback_error_text("not your piece"), "Это не ваша фигура");
+        assert_eq!(callback_error_text("illegal move"), "Так ходить нельзя");
     }
 
     #[test]

@@ -30,8 +30,9 @@ The reference follows this flow:
   → sendRichMessage through OutboundQueue
 
 button click
-  → answerCallbackQuery immediately
   → resolve token: actor + view + expiry + revision
+  → validate local transition
+  → answerCallbackQuery immediately (with a short rejection toast when invalid)
   → compare_and_set state transition
   → render new revision
   → SurfaceWorker edits the same Message surface
@@ -125,4 +126,9 @@ part of the projection. The view marks the selected piece and
 legal destinations, and the server recomputes legality during the callback
 transition for both colors. Empty legal destinations use the green cell-state
 emoji; occupied capture targets use the red cell-state sprite. A stale or
-illegal callback never changes state.
+illegal callback never changes state. It is acknowledged with a short client
+notification instead of being silently dropped, so an empty square, a
+wrong-side click, a stale button, or a move that would leave the king in check
+has visible feedback without waiting for a render. Successful callbacks are
+acknowledged before ephemeral delivery, Stockfish, or Telegram edit work
+begins.
