@@ -259,84 +259,84 @@ fn reference_emoji_palette() -> ChessEmojiPalette {
                     color: Color::White,
                     kind: Kind::Pawn,
                 },
-                ButtonLabel::custom_emoji("5228706161246642160", "♙"),
+                ButtonLabel::custom_emoji("5228706161246642160", "⚪"),
             ),
             (
                 Piece {
                     color: Color::White,
                     kind: Kind::Knight,
                 },
-                ButtonLabel::custom_emoji("5228737651946858079", "♘"),
+                ButtonLabel::custom_emoji("5228737651946858079", "⚪"),
             ),
             (
                 Piece {
                     color: Color::White,
                     kind: Kind::Bishop,
                 },
-                ButtonLabel::custom_emoji("5228900139149603713", "♗"),
+                ButtonLabel::custom_emoji("5228900139149603713", "⚪"),
             ),
             (
                 Piece {
                     color: Color::White,
                     kind: Kind::Rook,
                 },
-                ButtonLabel::custom_emoji("5228764658701214476", "♖"),
+                ButtonLabel::custom_emoji("5228764658701214476", "⚪"),
             ),
             (
                 Piece {
                     color: Color::White,
                     kind: Kind::Queen,
                 },
-                ButtonLabel::custom_emoji("5229122957757949016", "♕"),
+                ButtonLabel::custom_emoji("5229122957757949016", "⚪"),
             ),
             (
                 Piece {
                     color: Color::White,
                     kind: Kind::King,
                 },
-                ButtonLabel::custom_emoji("5228868553960106840", "♔"),
+                ButtonLabel::custom_emoji("5228868553960106840", "⚪"),
             ),
             (
                 Piece {
                     color: Color::Black,
                     kind: Kind::Pawn,
                 },
-                ButtonLabel::custom_emoji("5231291748738701863", "♟"),
+                ButtonLabel::custom_emoji("5231291748738701863", "⚫"),
             ),
             (
                 Piece {
                     color: Color::Black,
                     kind: Kind::Knight,
                 },
-                ButtonLabel::custom_emoji("5228976370524139940", "♞"),
+                ButtonLabel::custom_emoji("5228976370524139940", "⚫"),
             ),
             (
                 Piece {
                     color: Color::Black,
                     kind: Kind::Bishop,
                 },
-                ButtonLabel::custom_emoji("5229157983216248474", "♝"),
+                ButtonLabel::custom_emoji("5229157983216248474", "⚫"),
             ),
             (
                 Piece {
                     color: Color::Black,
                     kind: Kind::Rook,
                 },
-                ButtonLabel::custom_emoji("5229076176974163218", "♜"),
+                ButtonLabel::custom_emoji("5229076176974163218", "⚫"),
             ),
             (
                 Piece {
                     color: Color::Black,
                     kind: Kind::Queen,
                 },
-                ButtonLabel::custom_emoji("5228772548556139102", "♛"),
+                ButtonLabel::custom_emoji("5228772548556139102", "⚫"),
             ),
             (
                 Piece {
                     color: Color::Black,
                     kind: Kind::King,
                 },
-                ButtonLabel::custom_emoji("5231337923932101541", "♚"),
+                ButtonLabel::custom_emoji("5231337923932101541", "⚫"),
             ),
         ]),
         states: [
