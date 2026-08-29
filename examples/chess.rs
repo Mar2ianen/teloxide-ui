@@ -15,7 +15,8 @@ use teloxide::{
 };
 use teloxide_ui::{
     ActionRegistry, ActorPolicy, ButtonLabel, ButtonStyle, InMemoryUiStore, RenderContext,
-    Revision, RichRenderer, StalePolicy, Surface, SurfaceWorker, Ui, UiStore, ViewId, ViewRecord,
+    Revision, RichRenderer, StalePolicy, Surface, SurfaceWorker, TableCell, Ui, UiStore, ViewId,
+    ViewRecord,
 };
 
 type HandlerError = Box<dyn Error + Send + Sync>;
@@ -62,84 +63,84 @@ fn reference_emoji_palette() -> ChessEmojiPalette {
                     color: Color::White,
                     kind: Kind::Pawn,
                 },
-                ButtonLabel::custom_emoji("5228706161246642160", "♙"),
+                ButtonLabel::custom_emoji("5228706161246642160", "⚪"),
             ),
             (
                 Piece {
                     color: Color::White,
                     kind: Kind::Knight,
                 },
-                ButtonLabel::custom_emoji("5228737651946858079", "♘"),
+                ButtonLabel::custom_emoji("5228737651946858079", "⚪"),
             ),
             (
                 Piece {
                     color: Color::White,
                     kind: Kind::Bishop,
                 },
-                ButtonLabel::custom_emoji("5228900139149603713", "♗"),
+                ButtonLabel::custom_emoji("5228900139149603713", "⚪"),
             ),
             (
                 Piece {
                     color: Color::White,
                     kind: Kind::Rook,
                 },
-                ButtonLabel::custom_emoji("5228764658701214476", "♖"),
+                ButtonLabel::custom_emoji("5228764658701214476", "⚪"),
             ),
             (
                 Piece {
                     color: Color::White,
                     kind: Kind::Queen,
                 },
-                ButtonLabel::custom_emoji("5229122957757949016", "♕"),
+                ButtonLabel::custom_emoji("5229122957757949016", "⚪"),
             ),
             (
                 Piece {
                     color: Color::White,
                     kind: Kind::King,
                 },
-                ButtonLabel::custom_emoji("5228868553960106840", "♔"),
+                ButtonLabel::custom_emoji("5228868553960106840", "⚪"),
             ),
             (
                 Piece {
                     color: Color::Black,
                     kind: Kind::Pawn,
                 },
-                ButtonLabel::custom_emoji("5231291748738701863", "♟"),
+                ButtonLabel::custom_emoji("5231291748738701863", "⚫"),
             ),
             (
                 Piece {
                     color: Color::Black,
                     kind: Kind::Knight,
                 },
-                ButtonLabel::custom_emoji("5228976370524139940", "♞"),
+                ButtonLabel::custom_emoji("5228976370524139940", "⚫"),
             ),
             (
                 Piece {
                     color: Color::Black,
                     kind: Kind::Bishop,
                 },
-                ButtonLabel::custom_emoji("5229157983216248474", "♝"),
+                ButtonLabel::custom_emoji("5229157983216248474", "⚫"),
             ),
             (
                 Piece {
                     color: Color::Black,
                     kind: Kind::Rook,
                 },
-                ButtonLabel::custom_emoji("5229076176974163218", "♜"),
+                ButtonLabel::custom_emoji("5229076176974163218", "⚫"),
             ),
             (
                 Piece {
                     color: Color::Black,
                     kind: Kind::Queen,
                 },
-                ButtonLabel::custom_emoji("5228772548556139102", "♛"),
+                ButtonLabel::custom_emoji("5228772548556139102", "⚫"),
             ),
             (
                 Piece {
                     color: Color::Black,
                     kind: Kind::King,
                 },
-                ButtonLabel::custom_emoji("5231337923932101541", "♚"),
+                ButtonLabel::custom_emoji("5231337923932101541", "⚫"),
             ),
         ]),
         cells: [
@@ -313,7 +314,9 @@ async fn message_handler(app: Arc<ChessApp>, message: Message) -> Result<(), Han
     };
     let command = text.split_whitespace().next().unwrap_or_default();
     if command == "/chess" || command.starts_with("/chess@") {
-        app.start_game(&message).await?;
+        if let Err(error) = app.start_game(&message).await {
+            eprintln!("chess start failed: {error}");
+        }
     }
     Ok(())
 }
@@ -343,22 +346,48 @@ fn actor_policy(owner: Option<UserId>) -> ActorPolicy {
 }
 
 fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
-    let turn = state.turn.label();
-    let status = match state.selected {
-        Some(square) => format!(
-            "{turn} to move · choose a destination for {}",
-            square.coordinate()
-        ),
-        None => format!("{turn} to move · select a piece"),
+    let status = if state.finished {
+        "Game finished".to_owned()
+    } else {
+        let turn = format!("Your move as {}", state.turn.label());
+        match state.selected {
+            Some(square) => format!("{turn} · choose a destination for {}", square.coordinate()),
+            None => format!("{turn} · select a piece"),
+        }
     };
-    let mut ui = Ui::column()
-        .push(Ui::heading("♟ Rich Message Chess"))
-        .push(Ui::paragraph(status));
+    let mut ui = Ui::column().push(Ui::blockquote(status));
+    if !state.moves.is_empty() {
+        let moves = state.moves.join("  ");
+        ui = ui.push(Ui::details(
+            format!("Moves · {moves}"),
+            [Ui::paragraph(moves)],
+        ));
+    }
+
+    let files: Vec<i8> = if state.flipped {
+        (0..8).rev().collect()
+    } else {
+        (0..8).collect()
+    };
+    let ranks: Vec<i8> = if state.flipped {
+        (0..8).collect()
+    } else {
+        (0..8).rev().collect()
+    };
+    let mut board = Ui::table().bordered(false).compact(true);
+    let mut coordinate_row = vec![TableCell::empty()];
+    coordinate_row.extend(
+        files
+            .iter()
+            .copied()
+            .map(|file| TableCell::text(file_label(file))),
+    );
+    board = board.row(coordinate_row);
 
     let mut ordinal = 0;
-    for rank in (0..8).rev() {
-        let mut row = Ui::button_row();
-        for file in 0..8 {
+    for rank in ranks {
+        let mut row = vec![TableCell::text((rank + 1).to_string())];
+        for file in files.iter().copied() {
             let square = Square::new(file, rank).expect("board coordinate");
             let legal_destination = state
                 .selected
@@ -366,12 +395,12 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
             let capture_target = legal_destination && state.board[square.index()].is_some();
             let style = if state.selected == Some(square) {
                 ButtonStyle::Primary
-            } else if capture_target {
-                ButtonStyle::Danger
-            } else if legal_destination {
-                ButtonStyle::Success
             } else {
-                ButtonStyle::Default
+                // A board cell is a link-style Rich Message button so the
+                // table, rather than a rounded button pill, supplies the
+                // visual grid. Selection and move states are represented by
+                // the flat cell emoji palette below.
+                ButtonStyle::Link
             };
             let empty_cell_visual = if state.selected == Some(square) {
                 CellVisual::Selected
@@ -392,16 +421,35 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
                         .unwrap_or_else(|| ButtonLabel::from(piece.label()))
                 },
             );
-            row = row.push(Ui::button(label, ChessAction::Square(square.0)).style(style));
+            row.push(
+                TableCell::button(label, ChessAction::Square(square.0))
+                    .style(style)
+                    .disabled(state.finished),
+            );
             ordinal += 1;
         }
-        ui = ui.push(row);
+        board = board.row(row);
     }
+    let mut coordinate_row = vec![TableCell::empty()];
+    coordinate_row.extend(
+        files
+            .iter()
+            .copied()
+            .map(|file| TableCell::text(file_label(file))),
+    );
+    board = board.row(coordinate_row);
 
-    ui.push(
+    ui = ui.push(board);
+    ui = ui.push(
         Ui::button_row()
-            .push(Ui::button("New game", ChessAction::Reset).style(ButtonStyle::Danger)),
-    )
+            .push(Ui::button("⟳ Flip board", ChessAction::FlipBoard))
+            .push(Ui::button("↶ Undo", ChessAction::Undo).disabled(state.history.is_empty())),
+    );
+    if state.finished {
+        ui.push(Ui::button_row().push(Ui::button("New Game", ChessAction::Reset)))
+    } else {
+        ui.push(Ui::button_row().push(Ui::button("Finish Game", ChessAction::Finish)))
+    }
 }
 
 fn transition(mut state: ChessState, action: ChessAction) -> Result<ChessState, &'static str> {
@@ -410,7 +458,23 @@ fn transition(mut state: ChessState, action: ChessAction) -> Result<ChessState, 
             let owner = state.owner;
             state = ChessState::new(owner);
         }
+        ChessAction::FlipBoard => state.flipped = !state.flipped,
+        ChessAction::Undo => {
+            let previous = state.history.pop().ok_or("nothing to undo")?;
+            state.board = previous.board;
+            state.turn = previous.turn;
+            state.selected = None;
+            state.finished = false;
+            state.moves.pop();
+        }
+        ChessAction::Finish => {
+            state.finished = true;
+            state.selected = None;
+        }
         ChessAction::Square(raw) => {
+            if state.finished {
+                return Err("game is finished");
+            }
             let square = Square::from_raw(raw).ok_or("invalid square")?;
             match state.selected {
                 None => {
@@ -428,6 +492,12 @@ fn transition(mut state: ChessState, action: ChessAction) -> Result<ChessState, 
                     state.selected = Some(square);
                 }
                 Some(from) if legal_move(&state.board, from, square) => {
+                    let from_coordinate = from.coordinate();
+                    let to_coordinate = square.coordinate();
+                    state.history.push(ChessPosition {
+                        board: state.board,
+                        turn: state.turn,
+                    });
                     let mut piece = state.board[from.index()].take().ok_or("missing piece")?;
                     if piece.kind == Kind::Pawn && (square.rank() == 0 || square.rank() == 7) {
                         piece.kind = Kind::Queen;
@@ -435,6 +505,9 @@ fn transition(mut state: ChessState, action: ChessAction) -> Result<ChessState, 
                     state.board[square.index()] = Some(piece);
                     state.selected = None;
                     state.turn = state.turn.other();
+                    state
+                        .moves
+                        .push(format!("{from_coordinate}-{to_coordinate}"));
                 }
                 Some(_) => return Err("illegal move"),
             }
@@ -509,6 +582,9 @@ fn path_is_clear(board: &[Option<Piece>; 64], from: Square, to: Square) -> bool 
 enum ChessAction {
     Square(u8),
     Reset,
+    FlipBoard,
+    Undo,
+    Finish,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -517,6 +593,16 @@ struct ChessState {
     turn: Color,
     selected: Option<Square>,
     owner: Option<UserId>,
+    history: Vec<ChessPosition>,
+    moves: Vec<String>,
+    flipped: bool,
+    finished: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ChessPosition {
+    board: [Option<Piece>; 64],
+    turn: Color,
 }
 
 impl ChessState {
@@ -555,6 +641,10 @@ impl ChessState {
             turn: Color::White,
             selected: None,
             owner,
+            history: Vec::new(),
+            moves: Vec::new(),
+            flipped: false,
+            finished: false,
         }
     }
 }
@@ -653,6 +743,10 @@ impl Square {
     }
 }
 
+fn file_label(file: i8) -> String {
+    ((b'a' + file as u8) as char).to_string()
+}
+
 impl Default for ChessState {
     fn default() -> Self {
         Self::new(None)
@@ -724,7 +818,22 @@ mod tests {
             &reference_emoji_palette(),
         )
         .unwrap();
-        assert_eq!(rendered.action_tokens.len(), 65);
+        assert_eq!(rendered.action_tokens.len(), 66);
+    }
+
+    #[test]
+    fn flip_and_undo_are_stateful_controls() {
+        let state = ChessState::new(None);
+        let state = transition(state, ChessAction::FlipBoard).unwrap();
+        assert!(state.flipped);
+        let state = transition(state, ChessAction::Square(Square::new(4, 1).unwrap().0))
+            .and_then(|state| transition(state, ChessAction::Square(Square::new(4, 3).unwrap().0)))
+            .unwrap();
+        assert_eq!(state.moves, ["e2-e4"]);
+        let state = transition(state, ChessAction::Undo).unwrap();
+        assert_eq!(state.turn, Color::White);
+        assert!(state.board[Square::new(4, 1).unwrap().index()].is_some());
+        assert!(state.moves.is_empty());
     }
 
     #[test]

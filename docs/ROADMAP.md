@@ -21,7 +21,7 @@ Goal: prove one message can behave as a deterministic server-driven application
 surface.
 
 - [x] semantic `Ui<Action>` AST (text, paragraphs, headings, button rows,
-  fragments)
+  fragments, and interactive table cells)
 - [x] Rich Message compiler
 - [x] baseline structural validation before network requests
 - [x] `Message` surface
@@ -41,6 +41,11 @@ surface.
 - [x] latest-wins pending projection admission
 - [ ] counter example
 - [x] chess reference example
+
+The chess board is the first table primitive: it uses a complete Rich Message
+table with callback buttons embedded in its cells. The broader table
+component API (headers, spanning, captions, and reusable table components)
+remains Phase 4 work.
 
 Phase 1 exit condition: rapid concurrent chess clicks cannot produce an older
 visible board after a newer committed state. The current worker proves the

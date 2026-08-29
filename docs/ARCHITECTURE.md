@@ -51,8 +51,9 @@ let rendered = renderer.render(
 `ActionRegistry` keeps typed actions behind opaque `ActionToken` values and
 checks actor, view, expiry, and stale-revision policy. `InMemoryUiStore` gives
 the MVP a compare-and-set state transition boundary. `RichRenderer` produces
-an `InputRichMessage`; `SurfaceWorker` sends that complete representation
-through a caller-owned teloxide `OutboundQueue`.
+an `InputRichMessage`; its semantic table node can contain interactive cells;
+`SurfaceWorker` sends that complete representation through a caller-owned
+teloxide `OutboundQueue`.
 
 ## 3. State
 
@@ -154,8 +155,10 @@ It may model semantic elements such as:
 - heading;
 - button;
 - button row;
+- table cells containing text or buttons;
 - table;
-- details;
+- blockquote/callout;
+- collapsible details;
 - media;
 - fragment/column.
 

@@ -19,13 +19,15 @@ the first explicitly stabilized release.
   revision validation.
 - Optimistic-concurrency `InMemoryUiStore`.
 - Rich Message rendering for the initial semantic UI nodes.
+- Semantic Rich Message tables with text, empty, and interactive button cells.
+- Semantic Rich Message blockquotes and collapsible details blocks.
 - `SurfaceWorker` with one serial/latest-wins outbound lane per surface.
 - Chess reference application with server-side board state, opaque callbacks,
   immediate ACK, CAS transitions, and same-message Rich projection.
 - Semantic `ButtonLabel` values with Rich Message custom-emoji rendering; the
   chess example uses a published flat 2D custom-emoji set for pieces and cell
-  states, with Unicode fallbacks.
-- Pinned the teloxide dependency to fork commit `67432b14`, where `outbound`
+  states, with valid Unicode emoji fallbacks.
+- Pinned the teloxide dependency to fork commit `a6092220`, where `outbound`
   is an explicit opt-in feature.
 
 ### Compatibility

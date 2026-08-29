@@ -7,8 +7,10 @@ native Rich Message button, a click arrives as a callback, and the bot edits
 the same message with the next complete representation. The example uses the
 flat 2D custom emoji set
 [`teloxide_ui_chess_by_testteloxideui_bot`](https://t.me/addemoji/teloxide_ui_chess_by_testteloxideui_bot):
-12 piece icons and eight cell-state icons. Each label also carries a Unicode
-fallback.
+12 piece icons and eight cell-state icons. Each label also carries a valid
+Unicode emoji fallback required by Telegram's Rich Message API. The piece
+fallback is `⚪` for white and `⚫` for black; the custom image remains the
+primary visual representation.
 
 The reference follows this flow:
 
@@ -16,7 +18,7 @@ The reference follows this flow:
 /chess
   → create ViewId + server-side ChessState
   → view(state) → Ui<ChessAction>
-  → RichRenderer → InputRichMessage + opaque ActionToken values
+  → RichRenderer → table cells + opaque ActionToken values
   → sendRichMessage through OutboundQueue
 
 button click
@@ -61,8 +63,10 @@ documentation](https://core.telegram.org/bots/api). The reference app keeps
 the transport adapter in teloxide and keeps game state, action policy, render
 composition, and surface mapping in the application layer.
 
-Every board cell is a button. The view marks the selected piece and legal
-destinations, and the server recomputes legality during the callback transition
-for both colors. Empty legal destinations use the green cell-state emoji;
-occupied capture targets use the red button style. A stale or illegal callback
-never changes state.
+Every board cell is a button embedded in a Rich Message table. Coordinate
+gutters, turn status, move history, board flipping, undo, finish, and new-game
+controls are part of the projection. The view marks the selected piece and
+legal destinations, and the server recomputes legality during the callback
+transition for both colors. Empty legal destinations use the green cell-state
+emoji; occupied capture targets use the red button style. A stale or illegal
+callback never changes state.

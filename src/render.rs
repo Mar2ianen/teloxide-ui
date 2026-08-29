@@ -1,13 +1,15 @@
 use std::time::Duration;
 
 use teloxide::types::{
-    InputRichBlock, InputRichBlockButtons, InputRichBlockParagraph, InputRichBlockSectionHeading,
-    InputRichMessage, RichMessageButton, RichText, RichTextCustomEmoji, RichTextObject,
+    InputRichBlock, InputRichBlockBlockQuotation, InputRichBlockButtons, InputRichBlockDetails,
+    InputRichBlockParagraph, InputRichBlockSectionHeading, InputRichBlockTable, InputRichMessage,
+    RichBlockTableCell, RichMessageButton, RichText, RichTextButton, RichTextCustomEmoji,
+    RichTextObject,
 };
 
 use crate::{
-    ActionRegistry, ActionToken, ActorPolicy, ButtonLabel, Revision, StalePolicy, Ui, UiNode,
-    ViewId,
+    ActionRegistry, ActionToken, ActorPolicy, Button, ButtonLabel, Revision, StalePolicy,
+    TableCell, Ui, UiNode, ViewId,
 };
 
 /// Context required to render stateful buttons for one view revision.
@@ -74,6 +76,12 @@ pub enum RenderError {
     EmptyButtonLabel,
     /// A custom-emoji label is missing its identifier or fallback text.
     InvalidCustomEmoji,
+    /// A table does not contain any rows.
+    EmptyTable,
+    /// A table row does not contain any cells.
+    EmptyTableRow,
+    /// A plain-text table cell is empty.
+    EmptyTableCellText,
 }
 
 impl std::fmt::Display for RenderError {
@@ -85,6 +93,9 @@ impl std::fmt::Display for RenderError {
             Self::InvalidCustomEmoji => {
                 formatter.write_str("custom emoji needs an id and alternative text")
             }
+            Self::EmptyTable => formatter.write_str("table contains no rows"),
+            Self::EmptyTableRow => formatter.write_str("table row contains no cells"),
+            Self::EmptyTableCellText => formatter.write_str("table cell text cannot be empty"),
         }
     }
 }
@@ -167,42 +178,106 @@ impl<A> RichRenderer<A> {
                         size: 2,
                     }));
                 }
+                UiNode::Blockquote(text) => {
+                    blocks.push(InputRichBlock::Blockquote(InputRichBlockBlockQuotation {
+                        blocks: vec![InputRichBlock::Paragraph(InputRichBlockParagraph {
+                            text: RichText::from(text.as_str()),
+                        })],
+                        credit: None,
+                    }));
+                }
+                UiNode::Details(details) => {
+                    let mut detail_blocks = Vec::new();
+                    self.render_nodes(&details.blocks, context, &mut detail_blocks, action_tokens);
+                    blocks.push(InputRichBlock::Details(InputRichBlockDetails {
+                        summary: RichText::from(details.summary.as_str()),
+                        blocks: detail_blocks,
+                        is_open: Some(details.is_open),
+                    }));
+                }
                 UiNode::ButtonRow(row) => {
                     let buttons = row
                         .buttons
                         .iter()
-                        .map(|button| {
-                            if button.disabled {
-                                return RichMessageButton::disabled(render_button_label(
-                                    &button.text,
-                                ));
-                            }
-                            let token = self.registry.register_with_ttl(
-                                context.view_id,
-                                context.revision,
-                                button.action.clone(),
-                                context.actor,
-                                context.stale_policy,
-                                self.action_ttl,
-                            );
-                            action_tokens.push(token.clone());
-                            let style = button.style;
-                            let rendered = RichMessageButton::callback(
-                                render_button_label(&button.text),
-                                token.as_str(),
-                            );
-                            match style {
-                                crate::ButtonStyle::Default => rendered,
-                                style => rendered.style(style.as_str()),
-                            }
-                        })
+                        .map(|button| self.render_button(button, context, action_tokens))
                         .collect::<Vec<_>>();
                     blocks.push(InputRichBlock::Buttons(InputRichBlockButtons::new(buttons)));
+                }
+                UiNode::Table(table) => {
+                    let cells = table
+                        .rows
+                        .iter()
+                        .map(|row| {
+                            row.iter()
+                                .map(|cell| {
+                                    let text = match cell {
+                                        TableCell::Empty => None,
+                                        TableCell::Text(text) => {
+                                            Some(RichText::from(text.as_str()))
+                                        }
+                                        TableCell::Button(button) => Some(RichText::Object(
+                                            RichTextObject::Button(RichTextButton {
+                                                button: Box::new(self.render_button(
+                                                    button,
+                                                    context,
+                                                    action_tokens,
+                                                )),
+                                            }),
+                                        )),
+                                    };
+                                    RichBlockTableCell {
+                                        text,
+                                        is_header: None,
+                                        colspan: None,
+                                        rowspan: None,
+                                        align: "center".to_owned(),
+                                        valign: "middle".to_owned(),
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .collect::<Vec<_>>();
+                    blocks.push(InputRichBlock::Table(InputRichBlockTable {
+                        cells,
+                        is_bordered: table.is_bordered,
+                        is_striped: table.is_striped,
+                        is_compact: table.is_compact,
+                        caption: None,
+                    }));
                 }
                 UiNode::Fragment(children) => {
                     self.render_nodes(children, context, blocks, action_tokens)
                 }
             }
+        }
+    }
+
+    fn render_button(
+        &self,
+        button: &Button<A>,
+        context: RenderContext,
+        action_tokens: &mut Vec<ActionToken>,
+    ) -> RichMessageButton
+    where
+        A: Clone + Send + Sync + 'static,
+    {
+        if button.disabled {
+            return RichMessageButton::disabled(render_button_label(&button.text));
+        }
+        let token = self.registry.register_with_ttl(
+            context.view_id,
+            context.revision,
+            button.action.clone(),
+            context.actor,
+            context.stale_policy,
+            self.action_ttl,
+        );
+        action_tokens.push(token.clone());
+        let rendered =
+            RichMessageButton::callback(render_button_label(&button.text), token.as_str());
+        match button.style {
+            crate::ButtonStyle::Default => rendered,
+            style => rendered.style(style.as_str()),
         }
     }
 }
@@ -213,27 +288,45 @@ fn validate_nodes<A>(nodes: &[UiNode<A>]) -> Result<(), RenderError> {
     }
     for node in nodes {
         match node {
-            UiNode::Text(text) | UiNode::Paragraph(text) | UiNode::Heading(text) => {
+            UiNode::Text(text)
+            | UiNode::Paragraph(text)
+            | UiNode::Heading(text)
+            | UiNode::Blockquote(text) => {
                 if text.is_empty() {
                     return Err(RenderError::EmptyUi);
                 }
+            }
+            UiNode::Details(details) => {
+                if details.summary.is_empty() {
+                    return Err(RenderError::EmptyUi);
+                }
+                validate_nodes(&details.blocks)?;
             }
             UiNode::ButtonRow(row) => {
                 if row.buttons.is_empty() {
                     return Err(RenderError::EmptyButtonRow);
                 }
                 for button in &row.buttons {
-                    match &button.text {
-                        ButtonLabel::Plain(text) if text.is_empty() => {
-                            return Err(RenderError::EmptyButtonLabel);
+                    validate_button_label(&button.text)?;
+                }
+            }
+            UiNode::Table(table) => {
+                if table.rows.is_empty() {
+                    return Err(RenderError::EmptyTable);
+                }
+                for row in &table.rows {
+                    if row.is_empty() {
+                        return Err(RenderError::EmptyTableRow);
+                    }
+                    for cell in row {
+                        match cell {
+                            TableCell::Empty => {}
+                            TableCell::Text(text) if text.is_empty() => {
+                                return Err(RenderError::EmptyTableCellText);
+                            }
+                            TableCell::Text(_) => {}
+                            TableCell::Button(button) => validate_button_label(&button.text)?,
                         }
-                        ButtonLabel::CustomEmoji {
-                            custom_emoji_id,
-                            alternative_text,
-                        } if custom_emoji_id.is_empty() || alternative_text.is_empty() => {
-                            return Err(RenderError::InvalidCustomEmoji);
-                        }
-                        _ => {}
                     }
                 }
             }
@@ -241,6 +334,19 @@ fn validate_nodes<A>(nodes: &[UiNode<A>]) -> Result<(), RenderError> {
         }
     }
     Ok(())
+}
+
+fn validate_button_label(label: &ButtonLabel) -> Result<(), RenderError> {
+    match label {
+        ButtonLabel::Plain(text) if text.is_empty() => Err(RenderError::EmptyButtonLabel),
+        ButtonLabel::CustomEmoji {
+            custom_emoji_id,
+            alternative_text,
+        } if custom_emoji_id.is_empty() || alternative_text.is_empty() => {
+            Err(RenderError::InvalidCustomEmoji)
+        }
+        _ => Ok(()),
+    }
 }
 
 fn render_button_label(label: &ButtonLabel) -> RichText {
@@ -276,7 +382,8 @@ mod tests {
 
     use super::{RenderContext, RenderError, RichRenderer};
     use crate::{
-        ActionRegistry, ActorPolicy, ButtonLabel, ButtonStyle, Revision, StalePolicy, Ui, ViewId,
+        ActionRegistry, ActorPolicy, ButtonLabel, ButtonStyle, Revision, StalePolicy, TableCell,
+        Ui, ViewId,
     };
 
     #[derive(Clone, Debug, PartialEq)]
@@ -339,5 +446,29 @@ mod tests {
         };
         assert_eq!(emoji.custom_emoji_id, "emoji-id");
         assert_eq!(emoji.alternative_text, "♔");
+    }
+
+    #[test]
+    fn renderer_puts_interactive_cells_inside_a_rich_table() {
+        let registry = ActionRegistry::new();
+        let renderer = RichRenderer::new(registry);
+        let ui = Ui::column().push(
+            Ui::table()
+                .bordered(false)
+                .compact(true)
+                .row([TableCell::button("cell", Action::Increment)]),
+        );
+        let rendered = renderer
+            .render(&ui, RenderContext::new(ViewId::new(8), Revision::new(2)))
+            .unwrap();
+        assert_eq!(rendered.action_tokens.len(), 1);
+        let blocks = rendered.rich_message.blocks_ref().unwrap();
+        let teloxide::types::InputRichBlock::Table(table) = &blocks[0] else {
+            panic!("expected table block");
+        };
+        let Some(RichText::Object(RichTextObject::Button(button))) = &table.cells[0][0].text else {
+            panic!("expected interactive table cell");
+        };
+        assert!(button.button.callback_data.is_some());
     }
 }

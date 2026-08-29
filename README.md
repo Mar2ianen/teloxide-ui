@@ -144,6 +144,15 @@ similar primitives.
 
 It is intentionally not pixel-layout.
 
+The MVP also includes a semantic `Table` node. A table cell may contain plain
+text, be intentionally empty, or contain an action button. The Rich renderer
+maps it to Telegram's native table block and keeps action registration on the
+server; it does not expose browser-style layout or DOM identity.
+
+`Ui::blockquote` and `Ui::details` provide the native callout and collapsible
+history primitives used by the chess reference. They are semantic Telegram
+blocks, not general-purpose layout containers.
+
 Button labels are semantic too. Plain strings use `ButtonLabel::Plain`; a
 Telegram custom emoji can be passed as
 `ButtonLabel::custom_emoji(id, alternative_text)`. The renderer emits the Rich
@@ -275,7 +284,7 @@ During early development the dependency is pinned to
 [`Mar2ianen/teloxide-fork`](https://github.com/Mar2ianen/teloxide-fork), which
 exposes the Bot API 10.3 Rich Message surface and the generic outbound and
 Drafter infrastructure needed by the runtime. The dependency is pinned to
-fork commit `67432b14`, which exposes `outbound` as an opt-in teloxide feature
+fork commit `a6092220`, which exposes `outbound` as an opt-in teloxide feature
 and keeps the UI crate independent from teloxide internals.
 
 Some discoveries may still belong in teloxide itself. The rule is:
