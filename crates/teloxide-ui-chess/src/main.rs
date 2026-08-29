@@ -123,12 +123,7 @@ struct ChessEmojiPalette {
 }
 
 impl ChessEmojiPalette {
-    fn cell_label(
-        &self,
-        visual: CellVisual,
-        piece: Option<Piece>,
-        plain_piece_fallback: bool,
-    ) -> Option<ButtonLabel> {
+    fn cell_label(&self, visual: CellVisual, piece: Option<Piece>) -> Option<ButtonLabel> {
         // Do not put a custom emoji in an empty base cell. The native table
         // already owns its background, and the `▫️` fallback would otherwise
         // become a visible white square on clients that cannot resolve the
@@ -139,15 +134,6 @@ impl ChessEmojiPalette {
         }
 
         if let Some(piece) = piece {
-            // Telegram custom-emoji availability depends on both the bot's
-            // entitlement and the receiving client. PVP is primarily used in
-            // group chats, where this bot currently gets fallback glyphs
-            // instead of the published artwork. Use deterministic Unicode
-            // chess symbols there so a group board always shows real pieces.
-            if plain_piece_fallback {
-                return Some(ButtonLabel::Plain(piece_glyph(piece).to_owned()));
-            }
-
             // Normal pieces use the published set whose metadata matches the
             // fallback emoji. This preserves the correct degraded rendering
             // for clients without rich custom-emoji support.
@@ -257,23 +243,6 @@ const fn piece_index(piece: Option<Piece>) -> usize {
             color: Color::White,
             kind: Kind::King,
         }) => 12,
-    }
-}
-
-const fn piece_glyph(piece: Piece) -> &'static str {
-    match (piece.color, piece.kind) {
-        (Color::White, Kind::Pawn) => "♙️",
-        (Color::White, Kind::Knight) => "♘️",
-        (Color::White, Kind::Bishop) => "♗️",
-        (Color::White, Kind::Rook) => "♖️",
-        (Color::White, Kind::Queen) => "♕️",
-        (Color::White, Kind::King) => "♔️",
-        (Color::Black, Kind::Pawn) => "♟️",
-        (Color::Black, Kind::Knight) => "♞️",
-        (Color::Black, Kind::Bishop) => "♝️",
-        (Color::Black, Kind::Rook) => "♜️",
-        (Color::Black, Kind::Queen) => "♛️",
-        (Color::Black, Kind::King) => "♚️",
     }
 }
 
@@ -888,7 +857,6 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette, flipped: bool) -> Ui<Ch
     } else {
         (0..8).rev().collect()
     };
-    let plain_piece_fallback = state.mode == GameMode::TwoPlayer;
     // Each board cell is always a button carrying a transparent overlay. The
     // native table cell supplies the checkerboard background; the header flag
     // is deliberately applied to every light square, including empty cells.
@@ -921,11 +889,7 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette, flipped: bool) -> Ui<Ch
             };
             let light = (file + rank) % 2 != 0;
             let cell = palette
-                .cell_label(
-                    cell_visual,
-                    board_piece(&state.board, square),
-                    plain_piece_fallback,
-                )
+                .cell_label(cell_visual, board_piece(&state.board, square))
                 .map_or_else(
                     || {
                         // Keep empty squares interactive without rendering a
@@ -1510,9 +1474,8 @@ mod tests {
                 if button.text == ButtonLabel::Plain(INVISIBLE_EMPTY_CELL_LABEL.to_owned())
         ));
 
-        // e2 is a white pawn in the initial PVP position. Group projections
-        // use a real chess glyph instead of an unresolved custom-emoji
-        // fallback circle.
+        // e2 is a white pawn. Both PVP and engine projections use the same
+        // piece-only custom emoji, so the group and private board match.
         let cell = match &table.rows[7][5] {
             TableCell::Header(inner) => inner.as_ref(),
             cell => cell,
@@ -1520,10 +1483,10 @@ mod tests {
         assert!(matches!(
             cell,
             TableCell::Button(button)
-                if button.text == ButtonLabel::Plain("♙️".to_owned())
+                if button.text == ButtonLabel::custom_emoji(palette.piece_ids[6], "⚪")
         ));
 
-        // Engine/private projections retain the published piece-only palette.
+        // Engine/private projections use the same published palette.
         let private_ui = view(
             &ChessState::with_mode(None, GameMode::Stockfish),
             &palette,

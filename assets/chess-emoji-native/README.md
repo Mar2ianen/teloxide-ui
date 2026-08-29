@@ -18,11 +18,8 @@ official Rich Text Chess reference. The transparent overlays provide pieces,
 selection borders, and legal/capture markers without introducing a second
 background or a gap between cells.
 
-Private engine projections use the original piece-only custom emojis for
-ordinary occupied cells because their `⚪`/`⚫` metadata is a valid matching
-fallback. Group PVP projections use plain Unicode chess glyphs when custom
-emoji artwork cannot be resolved, so the board still shows actual pieces;
-emoji presentation selectors keep these symbols icon-like on Android.
+All projections use the original piece-only custom emojis for ordinary
+occupied cells because their `⚪`/`⚫` metadata is a valid matching fallback.
 Empty base cells remain action buttons with an invisible plain-text label, so
 clients that cannot resolve the native-v2 custom-emoji document do not show a
 white `▫️` placeholder in every square.
