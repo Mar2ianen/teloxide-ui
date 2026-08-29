@@ -24,6 +24,8 @@ the first explicitly stabilized release.
 - `SurfaceWorker` with one serial/latest-wins outbound lane per surface.
 - Chess reference application with server-side board state, opaque callbacks,
   immediate ACK, CAS transitions, and same-message Rich projection.
+- Chess moves now reject positions that leave the moving side's king in check
+  and report checkmate or stalemate in the stable one-line status block.
 - Semantic `ButtonLabel` values with Rich Message custom-emoji rendering; the
   chess example uses a published flat 2D set for pieces and cell states, with
   valid Unicode emoji fallbacks.

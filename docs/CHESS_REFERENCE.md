@@ -38,9 +38,10 @@ revision are resolved by `UiStore::compare_and_set`; only the winner projects
 that revision.
 
 The current game rules are deliberately MVP-sized: normal piece movement,
-captures, pawn promotion to a queen, turn ownership, and reset. Check,
-checkmate, castling, en passant, draw rules, and multi-player matchmaking are
-follow-up application work, not UI-runtime primitives.
+captures, pawn promotion to a queen, turn ownership, king-safety validation,
+check, checkmate/stalemate detection, and reset. Castling, en passant, draw
+rules, and multi-player matchmaking are follow-up application work, not
+UI-runtime primitives.
 
 ## Run it
 

@@ -547,12 +547,22 @@ fn actor_policy(owner: Option<UserId>) -> ActorPolicy {
 fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
     let status = if state.finished {
         "Game finished".to_owned()
-    } else {
-        let turn = format!("Your move as {}", state.turn.label());
-        match state.selected {
-            Some(square) => format!("{turn} · choose a destination for {}", square.coordinate()),
-            None => format!("{turn} · select a piece"),
+    } else if !has_legal_move(&state.board, state.turn) {
+        if is_in_check(&state.board, state.turn) {
+            format!("Checkmate · {} wins", state.turn.other().label())
+        } else {
+            "Stalemate · draw".to_owned()
         }
+    } else {
+        // Keep this block to one stable line. The selected square is already
+        // visible through the board marker, so putting its coordinate here
+        // only makes Telegram reflow the whole message on every click.
+        let check = if is_in_check(&state.board, state.turn) {
+            " · check"
+        } else {
+            ""
+        };
+        format!("Your move as {}{check}", state.turn.label())
     };
     let files: Vec<i8> = if state.flipped {
         (0..8).rev().collect()
@@ -610,7 +620,6 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
                 |cell| cell.header(light),
             ));
         }
-        row.push(TableCell::text((rank + 1).to_string()));
         board = board.row(row);
     }
     let mut coordinate_row = vec![TableCell::empty()];
@@ -667,6 +676,9 @@ fn transition(mut state: ChessState, action: ChessAction) -> Result<ChessState, 
             if state.finished {
                 return Err("game is finished");
             }
+            if !has_legal_move(&state.board, state.turn) {
+                return Err("game is over");
+            }
             let square = Square::from_raw(raw).ok_or("invalid square")?;
             match state.selected {
                 None => {
@@ -709,6 +721,20 @@ fn transition(mut state: ChessState, action: ChessAction) -> Result<ChessState, 
 }
 
 fn legal_move(board: &[Option<Piece>; 64], from: Square, to: Square) -> bool {
+    let Some(piece) = board[from.index()] else {
+        return false;
+    };
+    if !pseudo_legal_move(board, from, to) {
+        return false;
+    }
+
+    let mut next = *board;
+    next[from.index()] = None;
+    next[to.index()] = Some(piece);
+    !is_in_check(&next, piece.color)
+}
+
+fn pseudo_legal_move(board: &[Option<Piece>; 64], from: Square, to: Square) -> bool {
     if from == to {
         return false;
     }
@@ -750,6 +776,74 @@ fn legal_move(board: &[Option<Piece>; 64], from: Square, to: Square) -> bool {
         }
         Kind::King => abs_file <= 1 && abs_rank <= 1,
     }
+}
+
+fn is_in_check(board: &[Option<Piece>; 64], color: Color) -> bool {
+    let Some(king) = board.iter().enumerate().find_map(|(index, piece)| {
+        (*piece
+            == Some(Piece {
+                color,
+                kind: Kind::King,
+            }))
+        .then(|| Square::from_raw(index as u8))
+        .flatten()
+    }) else {
+        return true;
+    };
+    square_attacked(board, king, color.other())
+}
+
+fn square_attacked(board: &[Option<Piece>; 64], target: Square, by: Color) -> bool {
+    board.iter().enumerate().any(|(index, piece)| {
+        piece.is_some_and(|piece| {
+            piece.color == by
+                && Square::from_raw(index as u8)
+                    .is_some_and(|from| piece_attacks_square(board, piece, from, target))
+        })
+    })
+}
+
+fn piece_attacks_square(
+    board: &[Option<Piece>; 64],
+    piece: Piece,
+    from: Square,
+    to: Square,
+) -> bool {
+    if from == to {
+        return false;
+    }
+    let df = to.file() - from.file();
+    let dr = to.rank() - from.rank();
+    let abs_file = df.unsigned_abs();
+    let abs_rank = dr.unsigned_abs();
+    match piece.kind {
+        Kind::Pawn => {
+            let direction = if piece.color == Color::White { 1 } else { -1 };
+            abs_file == 1 && dr == direction
+        }
+        Kind::Knight => (abs_file == 1 && abs_rank == 2) || (abs_file == 2 && abs_rank == 1),
+        Kind::Bishop => abs_file == abs_rank && path_is_clear(board, from, to),
+        Kind::Rook => (df == 0 || dr == 0) && path_is_clear(board, from, to),
+        Kind::Queen => {
+            (df == 0 || dr == 0 || abs_file == abs_rank) && path_is_clear(board, from, to)
+        }
+        Kind::King => abs_file <= 1 && abs_rank <= 1,
+    }
+}
+
+fn has_legal_move(board: &[Option<Piece>; 64], color: Color) -> bool {
+    board.iter().enumerate().any(|(from, piece)| {
+        piece.is_some_and(|piece| {
+            piece.color == color
+                && (0..64).any(|to| {
+                    legal_move(
+                        board,
+                        Square::from_raw(from as u8).expect("board index"),
+                        Square::from_raw(to).expect("board index"),
+                    )
+                })
+        })
+    })
 }
 
 fn path_is_clear(board: &[Option<Piece>; 64], from: Square, to: Square) -> bool {
@@ -1015,5 +1109,60 @@ mod tests {
             Square::new(0, 0).unwrap(),
             Square::new(0, 3).unwrap()
         ));
+    }
+
+    #[test]
+    fn a_move_that_leaves_the_king_in_check_is_rejected() {
+        let mut state = ChessState::new(None);
+        state.board = [None; 64];
+        state.board[Square::new(4, 0).unwrap().index()] = Some(Piece {
+            color: Color::White,
+            kind: Kind::King,
+        });
+        state.board[Square::new(0, 0).unwrap().index()] = Some(Piece {
+            color: Color::White,
+            kind: Kind::Rook,
+        });
+        state.board[Square::new(4, 7).unwrap().index()] = Some(Piece {
+            color: Color::Black,
+            kind: Kind::Rook,
+        });
+        state.board[Square::new(7, 7).unwrap().index()] = Some(Piece {
+            color: Color::Black,
+            kind: Kind::King,
+        });
+
+        let selected =
+            transition(state, ChessAction::Square(Square::new(0, 0).unwrap().0)).unwrap();
+        assert!(is_in_check(&selected.board, Color::White));
+        assert_eq!(
+            transition(selected, ChessAction::Square(Square::new(0, 1).unwrap().0)),
+            Err("illegal move")
+        );
+    }
+
+    #[test]
+    fn a_king_cannot_move_into_check() {
+        let mut state = ChessState::new(None);
+        state.board = [None; 64];
+        state.board[Square::new(4, 0).unwrap().index()] = Some(Piece {
+            color: Color::White,
+            kind: Kind::King,
+        });
+        state.board[Square::new(4, 7).unwrap().index()] = Some(Piece {
+            color: Color::Black,
+            kind: Kind::Rook,
+        });
+        state.board[Square::new(7, 7).unwrap().index()] = Some(Piece {
+            color: Color::Black,
+            kind: Kind::King,
+        });
+
+        let selected =
+            transition(state, ChessAction::Square(Square::new(4, 0).unwrap().0)).unwrap();
+        assert_eq!(
+            transition(selected, ChessAction::Square(Square::new(4, 1).unwrap().0)),
+            Err("illegal move")
+        );
     }
 }
