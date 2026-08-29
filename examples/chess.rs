@@ -25,24 +25,42 @@ const ACTION_TTL: Duration = Duration::from_secs(30 * 60);
 #[derive(Clone)]
 struct ChessEmojiPalette {
     ids: [&'static str; 104],
+    pieces: HashMap<Piece, ButtonLabel>,
+    states: [[&'static str; 2]; 3],
 }
 
 impl ChessEmojiPalette {
-    fn cell_label(&self, visual: CellVisual, light: bool, piece: Option<Piece>) -> ButtonLabel {
-        let index = visual.index() * 26 + usize::from(light) * 13 + piece_index(piece);
-        let fallback = match piece {
-            Some(Piece {
-                color: Color::White,
-                ..
-            }) => "⚪",
-            Some(Piece {
-                color: Color::Black,
-                ..
-            }) => "⚫",
-            None if light => "⬜",
-            None => "⬛",
-        };
-        ButtonLabel::custom_emoji(self.ids[index], fallback)
+    fn cell_label(
+        &self,
+        visual: CellVisual,
+        light: bool,
+        piece: Option<Piece>,
+    ) -> Option<ButtonLabel> {
+        if let Some(piece) = piece {
+            let fallback = piece.symbol();
+            if matches!(visual, CellVisual::Base | CellVisual::Legal) {
+                return Some(
+                    self.pieces
+                        .get(&piece)
+                        .cloned()
+                        .unwrap_or_else(|| ButtonLabel::from(fallback)),
+                );
+            }
+
+            let index = visual.index() * 26 + usize::from(light) * 13 + piece_index(Some(piece));
+            return Some(ButtonLabel::custom_emoji(self.ids[index], fallback));
+        }
+
+        if visual == CellVisual::Base {
+            // Native striped table cells render the empty checkerboard squares.
+            // There is no button until this square becomes a legal destination.
+            return None;
+        }
+
+        Some(ButtonLabel::custom_emoji(
+            self.states[visual.index() - 1][usize::from(light)],
+            "•",
+        ))
     }
 }
 
@@ -229,6 +247,97 @@ fn reference_emoji_palette() -> ChessEmojiPalette {
             "5229053898978798305",
             "5228939644258789499",
             "5231159188868077127",
+        ],
+        pieces: HashMap::from([
+            (
+                Piece {
+                    color: Color::White,
+                    kind: Kind::Pawn,
+                },
+                ButtonLabel::custom_emoji("5228706161246642160", "♙"),
+            ),
+            (
+                Piece {
+                    color: Color::White,
+                    kind: Kind::Knight,
+                },
+                ButtonLabel::custom_emoji("5228737651946858079", "♘"),
+            ),
+            (
+                Piece {
+                    color: Color::White,
+                    kind: Kind::Bishop,
+                },
+                ButtonLabel::custom_emoji("5228900139149603713", "♗"),
+            ),
+            (
+                Piece {
+                    color: Color::White,
+                    kind: Kind::Rook,
+                },
+                ButtonLabel::custom_emoji("5228764658701214476", "♖"),
+            ),
+            (
+                Piece {
+                    color: Color::White,
+                    kind: Kind::Queen,
+                },
+                ButtonLabel::custom_emoji("5229122957757949016", "♕"),
+            ),
+            (
+                Piece {
+                    color: Color::White,
+                    kind: Kind::King,
+                },
+                ButtonLabel::custom_emoji("5228868553960106840", "♔"),
+            ),
+            (
+                Piece {
+                    color: Color::Black,
+                    kind: Kind::Pawn,
+                },
+                ButtonLabel::custom_emoji("5231291748738701863", "♟"),
+            ),
+            (
+                Piece {
+                    color: Color::Black,
+                    kind: Kind::Knight,
+                },
+                ButtonLabel::custom_emoji("5228976370524139940", "♞"),
+            ),
+            (
+                Piece {
+                    color: Color::Black,
+                    kind: Kind::Bishop,
+                },
+                ButtonLabel::custom_emoji("5229157983216248474", "♝"),
+            ),
+            (
+                Piece {
+                    color: Color::Black,
+                    kind: Kind::Rook,
+                },
+                ButtonLabel::custom_emoji("5229076176974163218", "♜"),
+            ),
+            (
+                Piece {
+                    color: Color::Black,
+                    kind: Kind::Queen,
+                },
+                ButtonLabel::custom_emoji("5228772548556139102", "♛"),
+            ),
+            (
+                Piece {
+                    color: Color::Black,
+                    kind: Kind::King,
+                },
+                ButtonLabel::custom_emoji("5231337923932101541", "♚"),
+            ),
+        ]),
+        states: [
+            ["5228943294980993429", "5229164915293464312"],
+            ["5231332615352522782", "5229180544679459827"],
+            ["5229049359198361382", "5229058687867328917"],
         ],
     }
 }
@@ -434,9 +543,9 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
     } else {
         (0..8).rev().collect()
     };
-    // Keep the natural custom-emoji cell size. Compact tables shrink the
-    // reference tiles and leave oversized gaps between them on Telegram.
-    let mut board = Ui::table().bordered(false).compact(false);
+    // The reference is a compact striped table. Its empty cells provide the
+    // checkerboard surface; buttons are layered only where an action exists.
+    let mut board = Ui::table().bordered(false).striped(true).compact(true);
     let mut coordinate_row = vec![TableCell::empty()];
     coordinate_row.extend(
         files
@@ -463,17 +572,18 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
             } else {
                 CellVisual::Base
             };
-            // A standard chessboard has a1 dark; each custom emoji is a
-            // complete fixed-size square with its piece/state composited in.
             let light = (file + rank) % 2 != 0;
-            let label = palette.cell_label(cell_visual, light, state.board[square.index()]);
-            row.push(
-                TableCell::button(label, ChessAction::Square(square.0))
-                    // Link style removes the native rounded button chrome
-                    // around the fixed-size cell emoji.
-                    .style(teloxide_ui::ButtonStyle::Link)
-                    .disabled(state.finished),
-            );
+            if let Some(label) = palette.cell_label(cell_visual, light, state.board[square.index()])
+            {
+                row.push(
+                    TableCell::button(label, ChessAction::Square(square.0))
+                        // Link style removes the native rounded button chrome.
+                        .style(teloxide_ui::ButtonStyle::Link)
+                        .disabled(state.finished),
+                );
+            } else {
+                row.push(TableCell::empty());
+            }
         }
         row.push(TableCell::text((rank + 1).to_string()));
         board = board.row(row);
@@ -712,6 +822,25 @@ struct Piece {
     kind: Kind,
 }
 
+impl Piece {
+    fn symbol(self) -> &'static str {
+        match (self.color, self.kind) {
+            (Color::White, Kind::Pawn) => "♙",
+            (Color::White, Kind::Knight) => "♘",
+            (Color::White, Kind::Bishop) => "♗",
+            (Color::White, Kind::Rook) => "♖",
+            (Color::White, Kind::Queen) => "♕",
+            (Color::White, Kind::King) => "♔",
+            (Color::Black, Kind::Pawn) => "♟",
+            (Color::Black, Kind::Knight) => "♞",
+            (Color::Black, Kind::Bishop) => "♝",
+            (Color::Black, Kind::Rook) => "♜",
+            (Color::Black, Kind::Queen) => "♛",
+            (Color::Black, Kind::King) => "♚",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 enum Color {
     White,
@@ -842,7 +971,7 @@ mod tests {
     }
 
     #[test]
-    fn every_board_cell_has_a_server_action() {
+    fn occupied_board_cells_have_server_actions() {
         let registry = ActionRegistry::new();
         let rendered = render_game(
             &registry,
@@ -852,7 +981,9 @@ mod tests {
             &reference_emoji_palette(),
         )
         .unwrap();
-        assert_eq!(rendered.action_tokens.len(), 66);
+        // The compact-table projection leaves empty base squares as native
+        // cells. Only occupied squares plus the controls need action tokens.
+        assert_eq!(rendered.action_tokens.len(), 34);
     }
 
     #[test]
