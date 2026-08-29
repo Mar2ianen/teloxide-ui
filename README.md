@@ -9,7 +9,7 @@ Telegram Rich Messages, callback actions, ephemeral surfaces, and deterministic
 server-side state.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Rust](https://img.shields.io/badge/Rust-1.85%2B-orange.svg)
+![Rust](https://img.shields.io/badge/Rust-1.88%2B-orange.svg)
 ![Telegram Bot API](https://img.shields.io/badge/Telegram%20Bot%20API-10.3-2CA5E0.svg)
 ![Status](https://img.shields.io/badge/status-experimental-yellow.svg)
 
@@ -249,10 +249,9 @@ This project depends on teloxide; it does not live inside teloxide.
 During early development the dependency is pinned to
 [`Mar2ianen/teloxide-fork`](https://github.com/Mar2ianen/teloxide-fork), which
 exposes the Bot API 10.3 Rich Message surface and the generic outbound and
-Drafter infrastructure needed by the runtime. The public pinned commit still
-needs the fork-side `outbound` feature wiring; local verification therefore
-uses a checkout of the fork that contains that wiring. This dependency
-integration must be resolved before CI or a crates.io-compatible release.
+Drafter infrastructure needed by the runtime. The dependency is pinned to
+fork commit `67432b14`, which exposes `outbound` as an opt-in teloxide feature
+and keeps the UI crate independent from teloxide internals.
 
 Some discoveries may still belong in teloxide itself. The rule is:
 
@@ -407,9 +406,8 @@ See [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Development
 
-The source manifest currently declares Rust `1.85`, but the latest resolved
-dependency graph requires Rust `1.88`. Until dependency versions are pinned to
-the declared MSRV, local MVP verification uses Rust `1.88`.
+The current MSRV is Rust `1.88`, matching the resolved dependency graph and
+the CI toolchain.
 
 Typical checks:
 
@@ -421,18 +419,6 @@ cargo test --doc
 cargo doc --no-deps --all-features
 ```
 
-Because the pinned public teloxide commit does not yet expose `outbound` in its
-manifest, local checks need a temporary Cargo patch to a fork checkout with
-that feature wiring:
-
-```bash
-cargo +1.88.0 test --config \
-  'patch."https://github.com/Mar2ianen/teloxide-fork".teloxide.path="/path/to/teloxide-fork/crates/teloxide"'
-```
-
-Use the same `--config` option before `-- -D warnings` for clippy and before
-the command-specific arguments for check/doc. The patch is for local
-verification only and is not part of the crate dependency declaration.
 
 Read [`AGENTS.md`](AGENTS.md) before making architectural changes.
 

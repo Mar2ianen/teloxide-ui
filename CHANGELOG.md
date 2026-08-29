@@ -20,6 +20,12 @@ the first explicitly stabilized release.
 - Optimistic-concurrency `InMemoryUiStore`.
 - Rich Message rendering for the initial semantic UI nodes.
 - `SurfaceWorker` with one serial/latest-wins outbound lane per surface.
+- Pinned the teloxide dependency to fork commit `67432b14`, where `outbound`
+  is an explicit opt-in feature.
+
+### Compatibility
+
+- Set the current MSRV and CI toolchain to Rust 1.88.
 
 ### Design
 

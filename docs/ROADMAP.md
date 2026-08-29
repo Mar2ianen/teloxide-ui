@@ -103,7 +103,7 @@ understand or test the runtime.
 - [ ] capability/policy based renderer selection
 - [ ] crates.io-compatible teloxide dependency
 - [ ] public API review
-- [ ] MSRV review
+- [x] MSRV review (1.88 for the current dependency graph)
 - [ ] docs.rs
 - [ ] migration/versioning policy
 - [ ] first publishable release

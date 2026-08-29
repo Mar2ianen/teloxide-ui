@@ -98,12 +98,10 @@ An `Effect::Draft` or UI-specific bridge belongs here.
 
 Early development pins a known full fork revision for reproducibility.
 
-The current pinned public revision contains the needed Rich Message types but
-does not yet expose the fork's `outbound` feature in the `teloxide` manifest.
-Until that generic wiring lands at a published revision, local checks use a
-temporary Cargo patch to a fork checkout that already contains it. This is an
-integration prerequisite, not a reason to copy the scheduler into
-`teloxide-ui`.
+The current pinned public revision `67432b14` contains the needed Rich Message
+types and exposes the fork's generic `outbound` feature in the `teloxide`
+manifest. The UI crate consumes that feature but does not copy its scheduler or
+transport implementation.
 
 Before publishing `teloxide-ui` to crates.io, the dependency story must be
 resolved deliberately. Preferred outcomes:
