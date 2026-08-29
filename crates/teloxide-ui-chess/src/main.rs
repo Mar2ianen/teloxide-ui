@@ -704,6 +704,8 @@ impl Default for ChessState {
 
 #[cfg(test)]
 mod tests {
+    use teloxide_ui::UiNode;
+
     use super::*;
 
     fn square(coordinate: &str) -> Square {
