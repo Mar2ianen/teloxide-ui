@@ -24,27 +24,25 @@ const ACTION_TTL: Duration = Duration::from_secs(30 * 60);
 
 #[derive(Clone)]
 struct ChessEmojiPalette {
-    pieces: HashMap<Piece, ButtonLabel>,
-    cells: [[&'static str; 2]; 3],
+    ids: [&'static str; 104],
 }
 
 impl ChessEmojiPalette {
     fn cell_label(&self, visual: CellVisual, light: bool, piece: Option<Piece>) -> ButtonLabel {
-        if let Some(piece) = piece {
-            return self
-                .pieces
-                .get(&piece)
-                .cloned()
-                .unwrap_or_else(|| ButtonLabel::from(piece.symbol()));
-        }
-
-        if visual == CellVisual::Base {
-            // The striped Rich Message table supplies the square background.
-            // Keep the cell interactive without adding a visible glyph.
-            return ButtonLabel::from("\u{2063}");
-        }
-
-        ButtonLabel::custom_emoji(self.cells[visual.index() - 1][usize::from(light)], "•")
+        let index = visual.index() * 26 + usize::from(light) * 13 + piece_index(piece);
+        let fallback = match piece {
+            Some(Piece {
+                color: Color::White,
+                ..
+            }) => "⚪",
+            Some(Piece {
+                color: Color::Black,
+                ..
+            }) => "⚫",
+            None if light => "⬜",
+            None => "⬛",
+        };
+        ButtonLabel::custom_emoji(self.ids[index], fallback)
     }
 }
 
@@ -67,101 +65,170 @@ impl CellVisual {
     }
 }
 
+const fn piece_index(piece: Option<Piece>) -> usize {
+    match piece {
+        None => 0,
+        Some(Piece {
+            color: Color::Black,
+            kind: Kind::Pawn,
+        }) => 1,
+        Some(Piece {
+            color: Color::Black,
+            kind: Kind::Knight,
+        }) => 2,
+        Some(Piece {
+            color: Color::Black,
+            kind: Kind::Bishop,
+        }) => 3,
+        Some(Piece {
+            color: Color::Black,
+            kind: Kind::Rook,
+        }) => 4,
+        Some(Piece {
+            color: Color::Black,
+            kind: Kind::Queen,
+        }) => 5,
+        Some(Piece {
+            color: Color::Black,
+            kind: Kind::King,
+        }) => 6,
+        Some(Piece {
+            color: Color::White,
+            kind: Kind::Pawn,
+        }) => 7,
+        Some(Piece {
+            color: Color::White,
+            kind: Kind::Knight,
+        }) => 8,
+        Some(Piece {
+            color: Color::White,
+            kind: Kind::Bishop,
+        }) => 9,
+        Some(Piece {
+            color: Color::White,
+            kind: Kind::Rook,
+        }) => 10,
+        Some(Piece {
+            color: Color::White,
+            kind: Kind::Queen,
+        }) => 11,
+        Some(Piece {
+            color: Color::White,
+            kind: Kind::King,
+        }) => 12,
+    }
+}
+
 fn reference_emoji_palette() -> ChessEmojiPalette {
-    // The reference uses native striped table cells for the board and
-    // transparent custom emoji for pieces. The set also contains small state
-    // markers for legal, capture, and selected empty destinations.
+    // Every entry is one complete 100x100 cell sprite: board background,
+    // optional state marker, and optional piece are already composited.
+    // Generated and uploaded as teloxide_ui_chess_v2_by_testteloxideui_bot.
     ChessEmojiPalette {
-        pieces: HashMap::from([
-            (
-                Piece {
-                    color: Color::White,
-                    kind: Kind::Pawn,
-                },
-                ButtonLabel::custom_emoji("5228706161246642160", "♙"),
-            ),
-            (
-                Piece {
-                    color: Color::White,
-                    kind: Kind::Knight,
-                },
-                ButtonLabel::custom_emoji("5228737651946858079", "♘"),
-            ),
-            (
-                Piece {
-                    color: Color::White,
-                    kind: Kind::Bishop,
-                },
-                ButtonLabel::custom_emoji("5228900139149603713", "♗"),
-            ),
-            (
-                Piece {
-                    color: Color::White,
-                    kind: Kind::Rook,
-                },
-                ButtonLabel::custom_emoji("5228764658701214476", "♖"),
-            ),
-            (
-                Piece {
-                    color: Color::White,
-                    kind: Kind::Queen,
-                },
-                ButtonLabel::custom_emoji("5229122957757949016", "♕"),
-            ),
-            (
-                Piece {
-                    color: Color::White,
-                    kind: Kind::King,
-                },
-                ButtonLabel::custom_emoji("5228868553960106840", "♔"),
-            ),
-            (
-                Piece {
-                    color: Color::Black,
-                    kind: Kind::Pawn,
-                },
-                ButtonLabel::custom_emoji("5231291748738701863", "♟"),
-            ),
-            (
-                Piece {
-                    color: Color::Black,
-                    kind: Kind::Knight,
-                },
-                ButtonLabel::custom_emoji("5228976370524139940", "♞"),
-            ),
-            (
-                Piece {
-                    color: Color::Black,
-                    kind: Kind::Bishop,
-                },
-                ButtonLabel::custom_emoji("5229157983216248474", "♝"),
-            ),
-            (
-                Piece {
-                    color: Color::Black,
-                    kind: Kind::Rook,
-                },
-                ButtonLabel::custom_emoji("5229076176974163218", "♜"),
-            ),
-            (
-                Piece {
-                    color: Color::Black,
-                    kind: Kind::Queen,
-                },
-                ButtonLabel::custom_emoji("5228772548556139102", "♛"),
-            ),
-            (
-                Piece {
-                    color: Color::Black,
-                    kind: Kind::King,
-                },
-                ButtonLabel::custom_emoji("5231337923932101541", "♚"),
-            ),
-        ]),
-        cells: [
-            ["5228943294980993429", "5229164915293464312"],
-            ["5231332615352522782", "5229180544679459827"],
-            ["5229049359198361382", "5229058687867328917"],
+        ids: [
+            "5229161470729693238",
+            "5231311277954999194",
+            "5228800109361276788",
+            "5231006068989007362",
+            "5229019968737158946",
+            "5228781984599288321",
+            "5228969623130511052",
+            "5230945458410526285",
+            "5231362194792292292",
+            "5229189899118224586",
+            "5231421688679275409",
+            "5228702149747191179",
+            "5231233672190924875",
+            "5229129546237785357",
+            "5231047300675050789",
+            "5230982064416791232",
+            "5230957922405621415",
+            "5231139212975185691",
+            "5229106443608694315",
+            "5228852366228371642",
+            "5231347914026032278",
+            "5228880133191932918",
+            "5229228759982320480",
+            "5228701535566867140",
+            "5231367662285656844",
+            "5228938622056575565",
+            "5231051213390256484",
+            "5229225117850049453",
+            "5229040533040568540",
+            "5231490936436989652",
+            "5228765814047416100",
+            "5229158812144936775",
+            "5231221474483804648",
+            "5230945174942683968",
+            "5228782998211569059",
+            "5231451461392571239",
+            "5228894044591008638",
+            "5231042413002266815",
+            "5228909884430398034",
+            "5229122562620958283",
+            "5231362461080262304",
+            "5231032036361281257",
+            "5228949385244615071",
+            "5231256658855895225",
+            "5231063548536330452",
+            "5229217159275649996",
+            "5231146200886975272",
+            "5228922515929210250",
+            "5229014436819280801",
+            "5229074622196001036",
+            "5231373859923468346",
+            "5228684952698135776",
+            "5228819818966198063",
+            "5228802596147342783",
+            "5229217743391205832",
+            "5231220971972631305",
+            "5231233955658767870",
+            "5228960320231350704",
+            "5231291740148766232",
+            "5229129168280659855",
+            "5230994150454763468",
+            "5231486727369039517",
+            "5229167200216067287",
+            "5231436338812725055",
+            "5229212417631757621",
+            "5231143129985359909",
+            "5229040520155673146",
+            "5231035854587208641",
+            "5231289334967079902",
+            "5228980811520320114",
+            "5231463135113683876",
+            "5229080991632497477",
+            "5229046679138771688",
+            "5231387097012689582",
+            "5231441226485504882",
+            "5229135937149114764",
+            "5229101229518398261",
+            "5228812504636891094",
+            "5231032294059318069",
+            "5231419528310727491",
+            "5228991231110982190",
+            "5231430454707525269",
+            "5231105115229823089",
+            "5229198308664192757",
+            "5231175857636154955",
+            "5229083109051381946",
+            "5229026565806928281",
+            "5228870452335653250",
+            "5231243898508058182",
+            "5228945975040589382",
+            "5231427701633487022",
+            "5231299857636956631",
+            "5228997669266954309",
+            "5230934922855750485",
+            "5231262637450369294",
+            "5229077375270039133",
+            "5231029807273251847",
+            "5231280989845629711",
+            "5231324850051655564",
+            "5231014714758174349",
+            "5228946688005152975",
+            "5229053898978798305",
+            "5228939644258789499",
+            "5231159188868077127",
         ],
     }
 }
@@ -367,7 +434,7 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
     } else {
         (0..8).rev().collect()
     };
-    let mut board = Ui::table().bordered(false).striped(true).compact(true);
+    let mut board = Ui::table().bordered(false).compact(true);
     let mut coordinate_row = vec![TableCell::empty()];
     coordinate_row.extend(
         files
@@ -394,14 +461,14 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
             } else {
                 CellVisual::Base
             };
-            // A standard chessboard has a1 dark; the striped table supplies
-            // the square background and the label supplies the piece/marker.
+            // A standard chessboard has a1 dark; each custom emoji is a
+            // complete fixed-size square with its piece/state composited in.
             let light = (file + rank) % 2 != 0;
             let label = palette.cell_label(cell_visual, light, state.board[square.index()]);
             row.push(
                 TableCell::button(label, ChessAction::Square(square.0))
-                    // Link style removes the native rounded button chrome.
-                    // The striped table supplies the square board surface.
+                    // Link style removes the native rounded button chrome
+                    // around the fixed-size cell emoji.
                     .style(teloxide_ui::ButtonStyle::Link)
                     .disabled(state.finished),
             );
@@ -640,25 +707,6 @@ impl ChessState {
 struct Piece {
     color: Color,
     kind: Kind,
-}
-
-impl Piece {
-    fn symbol(self) -> &'static str {
-        match (self.color, self.kind) {
-            (Color::White, Kind::Pawn) => "♙",
-            (Color::White, Kind::Knight) => "♘",
-            (Color::White, Kind::Bishop) => "♗",
-            (Color::White, Kind::Rook) => "♖",
-            (Color::White, Kind::Queen) => "♕",
-            (Color::White, Kind::King) => "♔",
-            (Color::Black, Kind::Pawn) => "♟",
-            (Color::Black, Kind::Knight) => "♞",
-            (Color::Black, Kind::Bishop) => "♝",
-            (Color::Black, Kind::Rook) => "♜",
-            (Color::Black, Kind::Queen) => "♛",
-            (Color::Black, Kind::King) => "♚",
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

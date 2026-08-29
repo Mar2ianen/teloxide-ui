@@ -159,13 +159,11 @@ Telegram custom emoji can be passed as
 Message object and keeps the fallback text beside it for clients or surfaces
 that cannot show the custom emoji.
 
-The chess reference uses Telegram's native striped Rich Message table for the
-checkerboard surface. Transparent flat 2D custom emoji provide the pieces, and
-small state emoji provide selected/legal/capture markers when needed. This
-keeps the cell backgrounds square and adjacent like the reference instead of
-turning every cell into a rounded button. The active palette and its published
-set are documented in [`assets/chess-emoji/README.md`](assets/chess-emoji/README.md);
-the complete-cell sprites remain available as an alternate experiment in
+The chess reference uses a flat 2D custom emoji set in which every board cell
+is one complete fixed-size sprite: background, state marker, and optional
+piece are already composited. The buttons use `link` style so Telegram does
+not wrap those square sprites in rounded button chrome. The generated PNG
+assets and published set are documented in
 [`assets/chess-emoji-reference-v2/README.md`](assets/chess-emoji-reference-v2/README.md).
 
 ### `Surface`
