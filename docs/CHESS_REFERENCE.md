@@ -4,13 +4,12 @@
 It reproduces the important interaction model of Telegram's Rich Message
 chess demonstration: one message contains the board, every enabled cell is a
 native Rich Message button, a click arrives as a callback, and the bot edits
-the same message with the next complete representation. The example uses the
-flat 2D custom emoji set
-[`teloxide_ui_chess_v2_by_testteloxideui_bot`](https://t.me/addemoji/teloxide_ui_chess_v2_by_testteloxideui_bot).
-Each board cell is one fixed-size 100×100 sprite containing its background,
-state marker, and optional piece. Each label also carries a valid Unicode
-emoji fallback required by Telegram's Rich Message API; the custom image
-remains the primary visual representation.
+the same message with the next complete representation. The example uses a
+native striped Rich Message table for the checkerboard and the flat 2D custom
+emoji set [`teloxide_ui_chess_by_testteloxideui_bot`](https://t.me/addemoji/teloxide_ui_chess_by_testteloxideui_bot)
+for transparent pieces and small state markers. Each cell label also carries
+a valid Unicode fallback required by Telegram's Rich Message API; custom emoji
+remain the primary visual representation when supported.
 
 The reference follows this flow:
 
@@ -63,14 +62,13 @@ documentation](https://core.telegram.org/bots/api). The reference app keeps
 the transport adapter in teloxide and keeps game state, action policy, render
 composition, and surface mapping in the application layer.
 
-Every board cell is a button embedded in a Rich Message table. The button
-label is a single complete cell sprite, so the board does not depend on
-Telegram composing separate background and piece emoji. Board cells leave the
-button style unset: an explicit `link` style sizes the button to its inline
-content and exposes the table's indents as gaps, while the native default lets
-the compact table cell occupy the full sprite area like the reference. The
-projection order is board, turn status, move history, and controls, matching
-the reference.
+Every board cell is a button embedded in a Rich Message table. The table's
+striped cells supply the alternating square background, while the button label
+contains a transparent piece or state marker. The buttons use `link` style to
+remove native rounded button chrome; the compact table supplies the spacing
+and keeps the cells adjacent like the reference. Empty base cells use an
+invisible fallback label so they remain action targets. The projection order
+is board, turn status, move history, and controls, matching the reference.
 Coordinate gutters, board flipping, undo, finish, and new-game controls are
 part of the projection. The view marks the selected piece and
 legal destinations, and the server recomputes legality during the callback
