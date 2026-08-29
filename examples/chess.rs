@@ -25,6 +25,8 @@ const ACTION_TTL: Duration = Duration::from_secs(30 * 60);
 #[derive(Clone)]
 struct ChessEmojiPalette {
     ids: [&'static str; 104],
+    pieces: HashMap<Piece, ButtonLabel>,
+    cells: [[ButtonLabel; 2]; 4],
 }
 
 impl ChessEmojiPalette {
@@ -34,18 +36,24 @@ impl ChessEmojiPalette {
         light: bool,
         piece: Option<Piece>,
     ) -> Option<ButtonLabel> {
-        // Every board cell is a complete custom-emoji sprite. This keeps the
-        // checkerboard background and the piece in one compact-table cell;
-        // native Empty cells cannot carry a custom emoji and lose the color.
-        let index = visual.index() * 26 + usize::from(light) * 13 + piece_index(piece);
-        let fallback = piece.map_or(if light { "⬜" } else { "⬛" }, |piece| {
-            if piece.color == Color::White {
+        if let Some(piece) = piece {
+            if matches!(visual, CellVisual::Base | CellVisual::Legal) {
+                return Some(self.pieces.get(&piece)?.clone());
+            }
+
+            let index = visual.index() * 26 + usize::from(light) * 13 + piece_index(Some(piece));
+            let fallback = if piece.color == Color::White {
                 "⚪"
             } else {
                 "⚫"
-            }
-        });
-        Some(ButtonLabel::custom_emoji(self.ids[index], fallback))
+            };
+            return Some(ButtonLabel::custom_emoji(self.ids[index], fallback));
+        }
+
+        if visual == CellVisual::Base {
+            return None;
+        }
+        Some(self.cells[visual.index()][usize::from(light)].clone())
     }
 }
 
@@ -123,8 +131,9 @@ const fn piece_index(piece: Option<Piece>) -> usize {
 }
 
 fn reference_emoji_palette() -> ChessEmojiPalette {
-    // Every entry is one complete 100x100 cell sprite: board background,
-    // optional state marker, and optional piece are already composited.
+    // The v2 entries below are the alternate complete-cell sprite palette.
+    // The active board uses the transparent piece/marker entries plus native
+    // table-cell backgrounds, because inline full-cell sprites leave gaps.
     // Generated and uploaded as teloxide_ui_chess_v2_by_testteloxideui_bot.
     ChessEmojiPalette {
         ids: [
@@ -232,6 +241,110 @@ fn reference_emoji_palette() -> ChessEmojiPalette {
             "5229053898978798305",
             "5228939644258789499",
             "5231159188868077127",
+        ],
+        pieces: HashMap::from([
+            (
+                Piece {
+                    color: Color::White,
+                    kind: Kind::Pawn,
+                },
+                ButtonLabel::custom_emoji("5228706161246642160", "⚪"),
+            ),
+            (
+                Piece {
+                    color: Color::White,
+                    kind: Kind::Knight,
+                },
+                ButtonLabel::custom_emoji("5228737651946858079", "⚪"),
+            ),
+            (
+                Piece {
+                    color: Color::White,
+                    kind: Kind::Bishop,
+                },
+                ButtonLabel::custom_emoji("5228900139149603713", "⚪"),
+            ),
+            (
+                Piece {
+                    color: Color::White,
+                    kind: Kind::Rook,
+                },
+                ButtonLabel::custom_emoji("5228764658701214476", "⚪"),
+            ),
+            (
+                Piece {
+                    color: Color::White,
+                    kind: Kind::Queen,
+                },
+                ButtonLabel::custom_emoji("5229122957757949016", "⚪"),
+            ),
+            (
+                Piece {
+                    color: Color::White,
+                    kind: Kind::King,
+                },
+                ButtonLabel::custom_emoji("5228868553960106840", "⚪"),
+            ),
+            (
+                Piece {
+                    color: Color::Black,
+                    kind: Kind::Pawn,
+                },
+                ButtonLabel::custom_emoji("5231291748738701863", "⚫"),
+            ),
+            (
+                Piece {
+                    color: Color::Black,
+                    kind: Kind::Knight,
+                },
+                ButtonLabel::custom_emoji("5228976370524139940", "⚫"),
+            ),
+            (
+                Piece {
+                    color: Color::Black,
+                    kind: Kind::Bishop,
+                },
+                ButtonLabel::custom_emoji("5229157983216248474", "⚫"),
+            ),
+            (
+                Piece {
+                    color: Color::Black,
+                    kind: Kind::Rook,
+                },
+                ButtonLabel::custom_emoji("5229076176974163218", "⚫"),
+            ),
+            (
+                Piece {
+                    color: Color::Black,
+                    kind: Kind::Queen,
+                },
+                ButtonLabel::custom_emoji("5228772548556139102", "⚫"),
+            ),
+            (
+                Piece {
+                    color: Color::Black,
+                    kind: Kind::King,
+                },
+                ButtonLabel::custom_emoji("5231337923932101541", "⚫"),
+            ),
+        ]),
+        cells: [
+            [
+                ButtonLabel::custom_emoji("5228872857517338448", "⬜"),
+                ButtonLabel::custom_emoji("5231047184710931936", "⬛"),
+            ],
+            [
+                ButtonLabel::custom_emoji("5228943294980993429", "🔶"),
+                ButtonLabel::custom_emoji("5229164915293464312", "🔷"),
+            ],
+            [
+                ButtonLabel::custom_emoji("5231332615352522782", "🟢"),
+                ButtonLabel::custom_emoji("5229180544679459827", "🟢"),
+            ],
+            [
+                ButtonLabel::custom_emoji("5229049359198361382", "🔴"),
+                ButtonLabel::custom_emoji("5229058687867328917", "🔴"),
+            ],
         ],
     }
 }
@@ -451,9 +564,11 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
     } else {
         (0..8).rev().collect()
     };
-    // The reference is a compact striped table. Its empty cells provide the
-    // checkerboard surface; buttons are layered only where an action exists.
-    let mut board = Ui::table().bordered(false).striped(true).compact(true);
+    // The reference is a compact table whose native header cells provide the
+    // light checkerboard squares. Buttons are layered only where an action
+    // exists; this keeps adjacent cells touching instead of showing gaps
+    // around an inline full-cell emoji.
+    let mut board = Ui::table().bordered(false).striped(false).compact(true);
     let mut coordinate_row = vec![TableCell::empty()];
     coordinate_row.extend(
         files
@@ -483,13 +598,17 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
             let light = (file + rank) % 2 != 0;
             let label = palette
                 .cell_label(cell_visual, light, state.board[square.index()])
-                .expect("full-cell chess sprite");
-            row.push(
-                TableCell::button(label, ChessAction::Square(square.0))
-                    // Link style removes the native rounded button chrome.
-                    .style(teloxide_ui::ButtonStyle::Link)
-                    .disabled(state.finished),
-            );
+                .map(|label| {
+                    TableCell::button(label, ChessAction::Square(square.0))
+                        // Link style removes the native rounded button chrome;
+                        // the table cell itself supplies the checkerboard.
+                        .style(teloxide_ui::ButtonStyle::Link)
+                        .disabled(state.finished)
+                });
+            row.push(label.map_or_else(
+                || TableCell::empty().header(light),
+                |cell| cell.header(light),
+            ));
         }
         row.push(TableCell::text((rank + 1).to_string()));
         board = board.row(row);
@@ -858,7 +977,7 @@ mod tests {
     }
 
     #[test]
-    fn full_cell_board_cells_have_server_actions() {
+    fn interactive_board_cells_have_server_actions() {
         let registry = ActionRegistry::new();
         let rendered = render_game(
             &registry,
@@ -868,10 +987,9 @@ mod tests {
             &reference_emoji_palette(),
         )
         .unwrap();
-        // Every full-cell sprite is a button so Telegram can display its
-        // checkerboard background inside the compact table. The enabled flip
-        // and finish controls add two more action tokens; Undo starts disabled.
-        assert_eq!(rendered.action_tokens.len(), 66);
+        // Only occupied cells are interactive before a piece is selected; the
+        // table's native header cells provide the checkerboard underneath.
+        assert_eq!(rendered.action_tokens.len(), 34);
     }
 
     #[test]

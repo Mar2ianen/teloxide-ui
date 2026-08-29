@@ -212,6 +212,12 @@ pub enum TableCell<A> {
     Text(String),
     /// An interactive cell button.
     Button(Button<A>),
+    /// A cell rendered with Telegram's native header-cell background.
+    ///
+    /// This is useful for semantic grid surfaces that need a checkerboard or
+    /// other alternating cell treatment without baking a background into an
+    /// inline custom emoji.
+    Header(Box<Self>),
 }
 
 impl<A> TableCell<A> {
@@ -238,6 +244,7 @@ impl<A> TableCell<A> {
     pub fn style(self, style: ButtonStyle) -> Self {
         match self {
             Self::Button(button) => Self::Button(button.style(style)),
+            Self::Header(cell) => Self::Header(Box::new(cell.style(style))),
             cell => cell,
         }
     }
@@ -247,7 +254,18 @@ impl<A> TableCell<A> {
     pub fn disabled(self, disabled: bool) -> Self {
         match self {
             Self::Button(button) => Self::Button(button.disabled(disabled)),
+            Self::Header(cell) => Self::Header(Box::new(cell.disabled(disabled))),
             cell => cell,
+        }
+    }
+
+    /// Marks this cell as a native Telegram header cell.
+    #[must_use]
+    pub fn header(self, header: bool) -> Self {
+        match (self, header) {
+            (Self::Header(cell), false) => *cell,
+            (cell, true) => Self::Header(Box::new(cell)),
+            (cell, false) => cell,
         }
     }
 }

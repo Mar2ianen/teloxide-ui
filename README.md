@@ -145,9 +145,10 @@ similar primitives.
 It is intentionally not pixel-layout.
 
 The MVP also includes a semantic `Table` node. A table cell may contain plain
-text, be intentionally empty, or contain an action button. The Rich renderer
-maps it to Telegram's native table block and keeps action registration on the
-server; it does not expose browser-style layout or DOM identity.
+text, be intentionally empty, contain an action button, or request Telegram's
+native header-cell background with `.header(true)`. The Rich renderer maps it
+to Telegram's native table block and keeps action registration on the server;
+it does not expose browser-style layout or DOM identity.
 
 `Ui::blockquote` and `Ui::details` provide the native callout and collapsible
 history primitives used by the chess reference. They are semantic Telegram
@@ -159,12 +160,14 @@ Telegram custom emoji can be passed as
 Message object and keeps the fallback text beside it for clients or surfaces
 that cannot show the custom emoji.
 
-The chess reference uses Telegram's compact striped Rich Message table for the
-checkerboard surface. Each of the 64 board cells is a complete 100×100 custom
-emoji sprite containing its tile background, optional state marker, and
-optional piece. Making every cell a compact `link` button preserves the
-reference's adjacent colored cells while keeping all cell actions server-side.
-The published full-cell palette is documented in
+The chess reference uses Telegram's compact Rich Message table for the
+checkerboard surface. Light board cells are marked with
+`TableCell::header(true)`, which asks Telegram to paint the native cell
+background; dark cells use the table's normal background. Transparent flat
+custom emoji provide the pieces and selected/legal/capture markers, so the
+native cells touch without the gaps caused by inline full-cell sprites. Action
+buttons are added only to occupied or actionable cells and remain server-side.
+The alternate full-cell palette is documented in
 [`assets/chess-emoji-reference-v2/README.md`](assets/chess-emoji-reference-v2/README.md).
 
 ### `Surface`

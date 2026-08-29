@@ -210,6 +210,7 @@ impl<A> RichRenderer<A> {
                         .map(|row| {
                             row.iter()
                                 .map(|cell| {
+                                    let (cell, is_header) = table_cell_parts(cell);
                                     let text = match cell {
                                         TableCell::Empty => None,
                                         TableCell::Text(text) => {
@@ -224,10 +225,13 @@ impl<A> RichRenderer<A> {
                                                 )),
                                             }),
                                         )),
+                                        TableCell::Header(_) => {
+                                            unreachable!("table_cell_parts removes header wrappers")
+                                        }
                                     };
                                     RichBlockTableCell {
                                         text,
-                                        is_header: None,
+                                        is_header,
                                         colspan: None,
                                         rowspan: None,
                                         align: "center".to_owned(),
@@ -326,6 +330,7 @@ fn validate_nodes<A>(nodes: &[UiNode<A>]) -> Result<(), RenderError> {
                             }
                             TableCell::Text(_) => {}
                             TableCell::Button(button) => validate_button_label(&button.text)?,
+                            TableCell::Header(cell) => validate_table_cell(cell)?,
                         }
                     }
                 }
@@ -334,6 +339,26 @@ fn validate_nodes<A>(nodes: &[UiNode<A>]) -> Result<(), RenderError> {
         }
     }
     Ok(())
+}
+
+fn validate_table_cell<A>(cell: &TableCell<A>) -> Result<(), RenderError> {
+    match cell {
+        TableCell::Empty => Ok(()),
+        TableCell::Text(text) if text.is_empty() => Err(RenderError::EmptyTableCellText),
+        TableCell::Text(_) => Ok(()),
+        TableCell::Button(button) => validate_button_label(&button.text),
+        TableCell::Header(cell) => validate_table_cell(cell),
+    }
+}
+
+fn table_cell_parts<A>(cell: &TableCell<A>) -> (&TableCell<A>, Option<bool>) {
+    let mut cell = cell;
+    let mut is_header = None;
+    while let TableCell::Header(inner) = cell {
+        cell = inner;
+        is_header = Some(true);
+    }
+    (cell, is_header)
 }
 
 fn validate_button_label(label: &ButtonLabel) -> Result<(), RenderError> {
@@ -470,5 +495,23 @@ mod tests {
             panic!("expected interactive table cell");
         };
         assert!(button.button.callback_data.is_some());
+    }
+
+    #[test]
+    fn renderer_encodes_native_header_table_cells() {
+        let renderer = RichRenderer::new(ActionRegistry::<Action>::new());
+        let ui = Ui::column().push(Ui::table().compact(true).row([
+            TableCell::<Action>::empty().header(true),
+            TableCell::text("dark"),
+        ]));
+        let rendered = renderer
+            .render(&ui, RenderContext::new(ViewId::new(9), Revision::INITIAL))
+            .unwrap();
+        let blocks = rendered.rich_message.blocks_ref().unwrap();
+        let teloxide::types::InputRichBlock::Table(table) = &blocks[0] else {
+            panic!("expected table block");
+        };
+        assert_eq!(table.cells[0][0].is_header, Some(true));
+        assert_eq!(table.cells[0][1].is_header, None);
     }
 }

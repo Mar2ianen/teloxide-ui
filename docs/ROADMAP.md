@@ -42,13 +42,15 @@ surface.
 - [ ] counter example
 - [x] chess reference example
 
-The chess board is the first table primitive: it uses a compact striped Rich
-Message table with one complete-cell custom emoji button per board square.
-Each sprite carries its checkerboard tile, optional move marker, and optional
-piece, which keeps the colored cells adjacent at Telegram's compact-table
-spacing. The board includes coordinate gutters on all four sides, while the
-broader table component API (headers, spanning, captions, and reusable table
-components) remains Phase 4 work.
+The chess board is the first table primitive: it uses a compact, non-striped
+Rich Message table with native header-cell backgrounds for light squares and
+ordinary table backgrounds for dark squares. Transparent flat custom emoji
+provide pieces and move markers, while buttons remain available for occupied
+or actionable cells. Keeping the checkerboard in the table cells is what
+makes adjacent cells touch like the reference; full-cell emoji remain an
+alternate experiment. The board includes coordinate gutters on all four
+sides, while the broader table component API (spanning, captions, and
+reusable table components) remains Phase 4 work.
 
 Phase 1 exit condition: rapid concurrent chess clicks cannot produce an older
 visible board after a newer committed state. The current worker proves the
