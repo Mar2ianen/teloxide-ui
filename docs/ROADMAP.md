@@ -43,9 +43,10 @@ surface.
 - [x] chess reference example
 
 The chess board is the first table primitive: it uses a complete Rich Message
-table with callback buttons embedded in its cells. The broader table
-component API (headers, spanning, captions, and reusable table components)
-remains Phase 4 work.
+table with callback buttons embedded in its cells. Each cell is represented by
+one fixed-size custom emoji sprite containing its background and optional
+piece/state marker. The broader table component API (headers, spanning,
+captions, and reusable table components) remains Phase 4 work.
 
 Phase 1 exit condition: rapid concurrent chess clicks cannot produce an older
 visible board after a newer committed state. The current worker proves the

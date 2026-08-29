@@ -17,8 +17,8 @@ docs/CHESS_REFERENCE.md
 docs/DESIGN_NOTES.md
 docs/ROADMAP.md
 docs/TELOXIDE_BOUNDARY.md
-assets/chess-emoji/README.md
-assets/chess-emoji/*.png
+assets/chess-emoji-reference-v2/README.md
+assets/chess-emoji-reference-v2/*.png
 rust-toolchain.toml
 src/component.rs
 src/effect.rs

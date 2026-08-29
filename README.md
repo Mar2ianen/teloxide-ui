@@ -159,10 +159,11 @@ Telegram custom emoji can be passed as
 Message object and keeps the fallback text beside it for clients or surfaces
 that cannot show the custom emoji.
 
-The chess reference includes a small flat 2D custom emoji set for its pieces,
-board cells, legal destinations, and capture targets. The generated PNG assets
-and the published set link are documented in
-[`assets/chess-emoji/README.md`](assets/chess-emoji/README.md).
+The chess reference includes a flat 2D custom emoji set in which each board
+cell is one complete fixed-size sprite: background, state marker, and optional
+piece are already composited. The generated PNG assets and published set link
+are documented in
+[`assets/chess-emoji-reference-v2/README.md`](assets/chess-emoji-reference-v2/README.md).
 
 ### `Surface`
 
