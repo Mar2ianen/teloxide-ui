@@ -80,8 +80,8 @@ This crate aims to provide the missing application layer:
 The current MVP already provides the semantic `Ui` builder, versioned opaque
 action registry, actor/TTL/stale checks, an optimistic in-memory `UiStore`, a
 Rich Message renderer, and a per-surface worker using teloxide's outbound
-queue. Callback dispatch/ACK remains application-owned for now; the chess
-reference example demonstrates that complete flow without putting it into the
+queue. Callback dispatch/ACK remains application-owned for now; the separate
+chess application demonstrates that complete flow without putting it into the
 core runtime. Persistence and Drafter effects are still outside this first
 slice.
 
@@ -273,14 +273,15 @@ contract.
 
 ## Chess reference
 
-The first application on top of the kit is [`examples/chess.rs`](examples/chess.rs).
+The first application on top of the kit is the separate
+[`teloxide-ui-chess`](crates/teloxide-ui-chess/) package.
 It renders an 8×8 board as Rich Message button rows, stores the board on the
 server, acknowledges callbacks before projection, and edits one Telegram
 message through `SurfaceWorker`. The complete runbook and deliberate MVP rule
-scope are in [`docs/CHESS_REFERENCE.md`](docs/CHESS_REFERENCE.md). Every cell
-is an action target; legal moves are calculated from the authoritative board on
-the server, and the custom emoji for pieces and cell states come from the
-published flat 2D set.
+scope are in [`docs/CHESS_REFERENCE.md`](docs/CHESS_REFERENCE.md). Occupied
+and currently actionable cells are action targets; legal moves are calculated
+from the authoritative board on the server, and the custom emoji for pieces
+and cell states come from the published flat 2D set.
 
 ## Relationship with teloxide
 
@@ -438,7 +439,7 @@ Implemented MVP:
 - Rich Message renderer;
 - per-surface serialized projection through teloxide `OutboundQueue`;
 - latest-wins pending render admission;
-- chess reference application.
+- chess reference application in the separate `teloxide-ui-chess` package.
 
 Callback dispatch/ACK, persistence, durable outbox recovery, legacy rendering,
 Drafter effects, and the counter reference application come later.

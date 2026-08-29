@@ -15,5 +15,5 @@ it is not the current reference projection.
 The assets are published in the
 [`teloxide_ui_chess_v2_by_testteloxideui_bot`](https://t.me/addemoji/teloxide_ui_chess_v2_by_testteloxideui_bot)
 custom emoji set. Their Telegram IDs are recorded in
-[`examples/chess.rs`](../../examples/chess.rs); labels retain valid Unicode
+[`crates/teloxide-ui-chess/src/main.rs`](../../crates/teloxide-ui-chess/src/main.rs); labels retain valid Unicode
 fallbacks for clients that cannot display the custom emoji.

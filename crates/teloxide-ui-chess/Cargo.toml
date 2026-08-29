@@ -1,0 +1,15 @@
+[package]
+name = "teloxide-ui-chess"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.88"
+license = "MIT"
+description = "Chess Rich Message application built on teloxide-ui"
+repository = "https://github.com/Mar2ianen/teloxide-ui"
+publish = false
+
+[dependencies]
+cozy-chess = "0.3.4"
+teloxide-ui = { path = "../.." }
+teloxide = { git = "https://github.com/Mar2ianen/teloxide-fork", rev = "a6092220", default-features = false, features = ["outbound", "ctrlc_handler", "rustls"] }
+tokio = { version = "1.39", default-features = false, features = ["macros", "rt-multi-thread", "sync", "time"] }

@@ -22,8 +22,11 @@ the first explicitly stabilized release.
 - Semantic Rich Message tables with text, empty, and interactive button cells.
 - Semantic Rich Message blockquotes and collapsible details blocks.
 - `SurfaceWorker` with one serial/latest-wins outbound lane per surface.
-- Chess reference application with server-side board state, opaque callbacks,
-  immediate ACK, CAS transitions, and same-message Rich projection.
+- Separate `teloxide-ui-chess` reference application with server-side board
+  state, opaque callbacks, immediate ACK, CAS transitions, and same-message
+  Rich projection.
+- `cozy-chess` integration for complete legal-move and game-status handling;
+  chess domain rules remain outside the `teloxide-ui` runtime.
 - Chess moves now reject positions that leave the moving side's king in check
   and report checkmate or stalemate in the stable one-line status block.
 - Semantic `ButtonLabel` values with Rich Message custom-emoji rendering; the

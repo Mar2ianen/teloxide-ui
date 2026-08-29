@@ -5,6 +5,11 @@ use std::{
     time::Duration,
 };
 
+use cozy_chess::{
+    util::{display_uci_move, parse_uci_move},
+    Board as ChessBoard, Color as EngineColor, GameStatus, Piece as EnginePiece,
+    Square as EngineSquare,
+};
 use teloxide::{
     dispatching::UpdateFilterExt,
     outbound::{Outbound, OutboundQueue, OutboundSettings},
@@ -545,24 +550,25 @@ fn actor_policy(owner: Option<UserId>) -> ActorPolicy {
 }
 
 fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
+    let turn = ui_color(state.board.side_to_move());
     let status = if state.finished {
         "Game finished".to_owned()
-    } else if !has_legal_move(&state.board, state.turn) {
-        if is_in_check(&state.board, state.turn) {
-            format!("Checkmate · {} wins", state.turn.other().label())
-        } else {
-            "Stalemate · draw".to_owned()
-        }
     } else {
-        // Keep this block to one stable line. The selected square is already
-        // visible through the board marker, so putting its coordinate here
-        // only makes Telegram reflow the whole message on every click.
-        let check = if is_in_check(&state.board, state.turn) {
-            " · check"
-        } else {
-            ""
-        };
-        format!("Your move as {}{check}", state.turn.label())
+        match state.board.status() {
+            GameStatus::Won => format!("Checkmate · {} wins", turn.other().label()),
+            GameStatus::Drawn => "Game drawn".to_owned(),
+            GameStatus::Ongoing => {
+                // Keep this block to one stable line. The selected square is already
+                // visible through the board marker, so putting its coordinate here
+                // only makes Telegram reflow the whole message on every click.
+                let check = if !state.board.checkers().is_empty() {
+                    " · check"
+                } else {
+                    ""
+                };
+                format!("Your move as {}{check}", turn.label())
+            }
+        }
     };
     let files: Vec<i8> = if state.flipped {
         (0..8).rev().collect()
@@ -595,7 +601,7 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
             let legal_destination = state
                 .selected
                 .is_some_and(|from| legal_move(&state.board, from, square));
-            let capture_target = legal_destination && state.board[square.index()].is_some();
+            let capture_target = legal_destination && board_piece(&state.board, square).is_some();
             let cell_visual = if state.selected == Some(square) {
                 CellVisual::Selected
             } else if capture_target {
@@ -607,7 +613,7 @@ fn view(state: &ChessState, palette: &ChessEmojiPalette) -> Ui<ChessAction> {
             };
             let light = (file + rank) % 2 != 0;
             let label = palette
-                .cell_label(cell_visual, light, state.board[square.index()])
+                .cell_label(cell_visual, light, board_piece(&state.board, square))
                 .map(|label| {
                     TableCell::button(label, ChessAction::Square(square.0))
                         // Link style removes the native rounded button chrome;
@@ -663,7 +669,6 @@ fn transition(mut state: ChessState, action: ChessAction) -> Result<ChessState, 
         ChessAction::Undo => {
             let previous = state.history.pop().ok_or("nothing to undo")?;
             state.board = previous.board;
-            state.turn = previous.turn;
             state.selected = None;
             state.finished = false;
             state.moves.pop();
@@ -676,42 +681,41 @@ fn transition(mut state: ChessState, action: ChessAction) -> Result<ChessState, 
             if state.finished {
                 return Err("game is finished");
             }
-            if !has_legal_move(&state.board, state.turn) {
+            if state.board.status() != GameStatus::Ongoing {
                 return Err("game is over");
             }
             let square = Square::from_raw(raw).ok_or("invalid square")?;
+            let engine_square = engine_square(square);
+            let turn = state.board.side_to_move();
             match state.selected {
                 None => {
-                    if state.board[square.index()].is_some_and(|piece| piece.color == state.turn) {
+                    if state.board.color_on(engine_square) == Some(turn) {
                         state.selected = Some(square);
                     } else {
                         return Err("not your piece");
                     }
                 }
                 Some(from) if from == square => state.selected = None,
-                Some(_from)
-                    if state.board[square.index()]
-                        .is_some_and(|piece| piece.color == state.turn) =>
-                {
+                Some(_from) if state.board.color_on(engine_square) == Some(turn) => {
                     state.selected = Some(square);
                 }
                 Some(from) if legal_move(&state.board, from, square) => {
                     let from_coordinate = from.coordinate();
                     let to_coordinate = square.coordinate();
+                    let mv = legal_move_for(&state.board, from, square).ok_or("illegal move")?;
+                    let notation = display_uci_move(&state.board, mv).to_string();
                     state.history.push(ChessPosition {
-                        board: state.board,
-                        turn: state.turn,
+                        board: state.board.clone(),
                     });
-                    let mut piece = state.board[from.index()].take().ok_or("missing piece")?;
-                    if piece.kind == Kind::Pawn && (square.rank() == 0 || square.rank() == 7) {
-                        piece.kind = Kind::Queen;
-                    }
-                    state.board[square.index()] = Some(piece);
+                    state.board.try_play(mv).map_err(|_| "illegal move")?;
                     state.selected = None;
-                    state.turn = state.turn.other();
                     state
                         .moves
-                        .push(format!("{from_coordinate}-{to_coordinate}"));
+                        .push(if notation == format!("{from_coordinate}{to_coordinate}") {
+                            format!("{from_coordinate}-{to_coordinate}")
+                        } else {
+                            notation
+                        });
                 }
                 Some(_) => return Err("illegal move"),
             }
@@ -720,148 +724,54 @@ fn transition(mut state: ChessState, action: ChessAction) -> Result<ChessState, 
     Ok(state)
 }
 
-fn legal_move(board: &[Option<Piece>; 64], from: Square, to: Square) -> bool {
-    let Some(piece) = board[from.index()] else {
-        return false;
-    };
-    if !pseudo_legal_move(board, from, to) {
-        return false;
-    }
-
-    let mut next = *board;
-    next[from.index()] = None;
-    next[to.index()] = Some(piece);
-    !is_in_check(&next, piece.color)
+fn legal_move(board: &ChessBoard, from: Square, to: Square) -> bool {
+    legal_move_for(board, from, to).is_some()
 }
 
-fn pseudo_legal_move(board: &[Option<Piece>; 64], from: Square, to: Square) -> bool {
+fn legal_move_for(board: &ChessBoard, from: Square, to: Square) -> Option<cozy_chess::Move> {
     if from == to {
-        return false;
+        return None;
     }
-    let Some(piece) = board[from.index()] else {
-        return false;
-    };
-    if board[to.index()]
-        .is_some_and(|target| target.color == piece.color || target.kind == Kind::King)
+    let promotion = if board.piece_on(engine_square(from)) == Some(EnginePiece::Pawn)
+        && (to.rank() == 0 || to.rank() == 7)
     {
-        return false;
-    }
-    let df = to.file() - from.file();
-    let dr = to.rank() - from.rank();
-    let abs_file = df.unsigned_abs();
-    let abs_rank = dr.unsigned_abs();
-    match piece.kind {
-        Kind::Pawn => {
-            let direction = if piece.color == Color::White { 1 } else { -1 };
-            let start_rank = if piece.color == Color::White { 1 } else { 6 };
-            if df == 0 && board[to.index()].is_none() && dr == direction {
-                return true;
-            }
-            if df == 0
-                && from.rank() == start_rank
-                && dr == 2 * direction
-                && board[to.index()].is_none()
-                && Square::new(from.file(), from.rank() + direction)
-                    .is_some_and(|middle| board[middle.index()].is_none())
-            {
-                return true;
-            }
-            abs_file == 1 && dr == direction && board[to.index()].is_some()
-        }
-        Kind::Knight => (abs_file == 1 && abs_rank == 2) || (abs_file == 2 && abs_rank == 1),
-        Kind::Bishop => abs_file == abs_rank && path_is_clear(board, from, to),
-        Kind::Rook => (df == 0 || dr == 0) && path_is_clear(board, from, to),
-        Kind::Queen => {
-            (df == 0 || dr == 0 || abs_file == abs_rank) && path_is_clear(board, from, to)
-        }
-        Kind::King => abs_file <= 1 && abs_rank <= 1,
-    }
-}
-
-fn is_in_check(board: &[Option<Piece>; 64], color: Color) -> bool {
-    let Some(king) = board.iter().enumerate().find_map(|(index, piece)| {
-        (*piece
-            == Some(Piece {
-                color,
-                kind: Kind::King,
-            }))
-        .then(|| Square::from_raw(index as u8))
-        .flatten()
-    }) else {
-        return true;
+        "q"
+    } else {
+        ""
     };
-    square_attacked(board, king, color.other())
+    let uci = format!("{}{}{promotion}", from.coordinate(), to.coordinate());
+    let mv = parse_uci_move(board, &uci).ok()?;
+    board.is_legal(mv).then_some(mv)
 }
 
-fn square_attacked(board: &[Option<Piece>; 64], target: Square, by: Color) -> bool {
-    board.iter().enumerate().any(|(index, piece)| {
-        piece.is_some_and(|piece| {
-            piece.color == by
-                && Square::from_raw(index as u8)
-                    .is_some_and(|from| piece_attacks_square(board, piece, from, target))
-        })
+fn board_piece(board: &ChessBoard, square: Square) -> Option<Piece> {
+    let engine_square = engine_square(square);
+    Some(Piece {
+        color: ui_color(board.color_on(engine_square)?),
+        kind: ui_kind(board.piece_on(engine_square)?),
     })
 }
 
-fn piece_attacks_square(
-    board: &[Option<Piece>; 64],
-    piece: Piece,
-    from: Square,
-    to: Square,
-) -> bool {
-    if from == to {
-        return false;
-    }
-    let df = to.file() - from.file();
-    let dr = to.rank() - from.rank();
-    let abs_file = df.unsigned_abs();
-    let abs_rank = dr.unsigned_abs();
-    match piece.kind {
-        Kind::Pawn => {
-            let direction = if piece.color == Color::White { 1 } else { -1 };
-            abs_file == 1 && dr == direction
-        }
-        Kind::Knight => (abs_file == 1 && abs_rank == 2) || (abs_file == 2 && abs_rank == 1),
-        Kind::Bishop => abs_file == abs_rank && path_is_clear(board, from, to),
-        Kind::Rook => (df == 0 || dr == 0) && path_is_clear(board, from, to),
-        Kind::Queen => {
-            (df == 0 || dr == 0 || abs_file == abs_rank) && path_is_clear(board, from, to)
-        }
-        Kind::King => abs_file <= 1 && abs_rank <= 1,
+fn engine_square(square: Square) -> EngineSquare {
+    EngineSquare::index(square.index())
+}
+
+fn ui_color(color: EngineColor) -> Color {
+    match color {
+        EngineColor::White => Color::White,
+        EngineColor::Black => Color::Black,
     }
 }
 
-fn has_legal_move(board: &[Option<Piece>; 64], color: Color) -> bool {
-    board.iter().enumerate().any(|(from, piece)| {
-        piece.is_some_and(|piece| {
-            piece.color == color
-                && (0..64).any(|to| {
-                    legal_move(
-                        board,
-                        Square::from_raw(from as u8).expect("board index"),
-                        Square::from_raw(to).expect("board index"),
-                    )
-                })
-        })
-    })
-}
-
-fn path_is_clear(board: &[Option<Piece>; 64], from: Square, to: Square) -> bool {
-    let step_file = (to.file() - from.file()).signum();
-    let step_rank = (to.rank() - from.rank()).signum();
-    let mut file = from.file() + step_file;
-    let mut rank = from.rank() + step_rank;
-    while file != to.file() || rank != to.rank() {
-        let Some(square) = Square::new(file, rank) else {
-            return false;
-        };
-        if board[square.index()].is_some() {
-            return false;
-        }
-        file += step_file;
-        rank += step_rank;
+fn ui_kind(piece: EnginePiece) -> Kind {
+    match piece {
+        EnginePiece::Pawn => Kind::Pawn,
+        EnginePiece::Knight => Kind::Knight,
+        EnginePiece::Bishop => Kind::Bishop,
+        EnginePiece::Rook => Kind::Rook,
+        EnginePiece::Queen => Kind::Queen,
+        EnginePiece::King => Kind::King,
     }
-    true
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -875,8 +785,7 @@ enum ChessAction {
 
 #[derive(Clone, Debug, PartialEq)]
 struct ChessState {
-    board: [Option<Piece>; 64],
-    turn: Color,
+    board: ChessBoard,
     selected: Option<Square>,
     owner: Option<UserId>,
     history: Vec<ChessPosition>,
@@ -885,46 +794,15 @@ struct ChessState {
     finished: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct ChessPosition {
-    board: [Option<Piece>; 64],
-    turn: Color,
+    board: ChessBoard,
 }
 
 impl ChessState {
     fn new(owner: Option<UserId>) -> Self {
-        let mut board = [None; 64];
-        let back_rank = [
-            Kind::Rook,
-            Kind::Knight,
-            Kind::Bishop,
-            Kind::Queen,
-            Kind::King,
-            Kind::Bishop,
-            Kind::Knight,
-            Kind::Rook,
-        ];
-        for (file, kind) in back_rank.into_iter().enumerate() {
-            board[file] = Some(Piece {
-                color: Color::White,
-                kind,
-            });
-            board[8 + file] = Some(Piece {
-                color: Color::White,
-                kind: Kind::Pawn,
-            });
-            board[48 + file] = Some(Piece {
-                color: Color::Black,
-                kind: Kind::Pawn,
-            });
-            board[56 + file] = Some(Piece {
-                color: Color::Black,
-                kind,
-            });
-        }
         Self {
-            board,
-            turn: Color::White,
+            board: ChessBoard::default(),
             selected: None,
             owner,
             history: Vec::new(),
@@ -1020,53 +898,46 @@ impl Default for ChessState {
 mod tests {
     use super::*;
 
+    fn square(coordinate: &str) -> Square {
+        let bytes = coordinate.as_bytes();
+        Square::new((bytes[0] - b'a') as i8, (bytes[1] - b'1') as i8).expect("valid square")
+    }
+
+    fn play(state: ChessState, from: &str, to: &str) -> ChessState {
+        transition(state, ChessAction::Square(square(from).0))
+            .and_then(|state| transition(state, ChessAction::Square(square(to).0)))
+            .expect("legal move")
+    }
+
     #[test]
     fn initial_board_has_expected_turn_and_pieces() {
         let state = ChessState::new(None);
-        assert_eq!(state.turn, Color::White);
-        assert_eq!(state.board.iter().flatten().count(), 32);
+        assert_eq!(state.board.side_to_move(), EngineColor::White);
+        assert_eq!(state.board.occupied().len(), 32);
         assert_eq!(
-            state.board[Square::new(4, 0).unwrap().index()],
-            Some(Piece {
-                color: Color::White,
-                kind: Kind::King,
-            })
+            state.board.piece_on(EngineSquare::E1),
+            Some(EnginePiece::King)
         );
     }
 
     #[test]
     fn pawn_move_commits_and_changes_turn() {
-        let state = ChessState::new(None);
-        let moved = transition(state, ChessAction::Square(Square::new(4, 1).unwrap().0))
-            .and_then(|state| transition(state, ChessAction::Square(Square::new(4, 3).unwrap().0)))
-            .unwrap();
-        assert_eq!(moved.turn, Color::Black);
-        assert!(moved.board[Square::new(4, 1).unwrap().index()].is_none());
+        let moved = play(ChessState::new(None), "e2", "e4");
+        assert_eq!(moved.board.side_to_move(), EngineColor::Black);
+        assert_eq!(moved.board.piece_on(EngineSquare::E2), None);
         assert_eq!(
-            moved.board[Square::new(4, 3).unwrap().index()],
-            Some(Piece {
-                color: Color::White,
-                kind: Kind::Pawn,
-            })
+            moved.board.piece_on(EngineSquare::E4),
+            Some(EnginePiece::Pawn)
         );
     }
 
     #[test]
     fn black_can_select_and_move_after_white_turn() {
-        let state = ChessState::new(None);
-        let state = transition(state, ChessAction::Square(Square::new(4, 1).unwrap().0))
-            .and_then(|state| transition(state, ChessAction::Square(Square::new(4, 3).unwrap().0)))
-            .unwrap();
-        let moved = transition(state, ChessAction::Square(Square::new(4, 6).unwrap().0))
-            .and_then(|state| transition(state, ChessAction::Square(Square::new(4, 4).unwrap().0)))
-            .unwrap();
-        assert_eq!(moved.turn, Color::White);
+        let moved = play(play(ChessState::new(None), "e2", "e4"), "e7", "e5");
+        assert_eq!(moved.board.side_to_move(), EngineColor::White);
         assert_eq!(
-            moved.board[Square::new(4, 4).unwrap().index()],
-            Some(Piece {
-                color: Color::Black,
-                kind: Kind::Pawn,
-            })
+            moved.board.piece_on(EngineSquare::E5),
+            Some(EnginePiece::Pawn)
         );
     }
 
@@ -1091,52 +962,30 @@ mod tests {
         let state = ChessState::new(None);
         let state = transition(state, ChessAction::FlipBoard).unwrap();
         assert!(state.flipped);
-        let state = transition(state, ChessAction::Square(Square::new(4, 1).unwrap().0))
-            .and_then(|state| transition(state, ChessAction::Square(Square::new(4, 3).unwrap().0)))
-            .unwrap();
+        let state = play(state, "e2", "e4");
         assert_eq!(state.moves, ["e2-e4"]);
         let state = transition(state, ChessAction::Undo).unwrap();
-        assert_eq!(state.turn, Color::White);
-        assert!(state.board[Square::new(4, 1).unwrap().index()].is_some());
+        assert_eq!(state.board.side_to_move(), EngineColor::White);
+        assert_eq!(
+            state.board.piece_on(EngineSquare::E2),
+            Some(EnginePiece::Pawn)
+        );
         assert!(state.moves.is_empty());
     }
 
     #[test]
     fn blocked_piece_cannot_move_through_another_piece() {
         let state = ChessState::new(None);
-        assert!(!legal_move(
-            &state.board,
-            Square::new(0, 0).unwrap(),
-            Square::new(0, 3).unwrap()
-        ));
+        assert!(!legal_move(&state.board, square("a1"), square("a4")));
     }
 
     #[test]
     fn a_move_that_leaves_the_king_in_check_is_rejected() {
         let mut state = ChessState::new(None);
-        state.board = [None; 64];
-        state.board[Square::new(4, 0).unwrap().index()] = Some(Piece {
-            color: Color::White,
-            kind: Kind::King,
-        });
-        state.board[Square::new(0, 0).unwrap().index()] = Some(Piece {
-            color: Color::White,
-            kind: Kind::Rook,
-        });
-        state.board[Square::new(4, 7).unwrap().index()] = Some(Piece {
-            color: Color::Black,
-            kind: Kind::Rook,
-        });
-        state.board[Square::new(7, 7).unwrap().index()] = Some(Piece {
-            color: Color::Black,
-            kind: Kind::King,
-        });
-
-        let selected =
-            transition(state, ChessAction::Square(Square::new(0, 0).unwrap().0)).unwrap();
-        assert!(is_in_check(&selected.board, Color::White));
+        state.board = "4r1k1/8/8/8/4R3/8/8/4K3 w - - 0 1".parse().unwrap();
+        let selected = transition(state, ChessAction::Square(square("e4").0)).unwrap();
         assert_eq!(
-            transition(selected, ChessAction::Square(Square::new(0, 1).unwrap().0)),
+            transition(selected, ChessAction::Square(square("d4").0)),
             Err("illegal move")
         );
     }
@@ -1144,25 +993,37 @@ mod tests {
     #[test]
     fn a_king_cannot_move_into_check() {
         let mut state = ChessState::new(None);
-        state.board = [None; 64];
-        state.board[Square::new(4, 0).unwrap().index()] = Some(Piece {
-            color: Color::White,
-            kind: Kind::King,
-        });
-        state.board[Square::new(4, 7).unwrap().index()] = Some(Piece {
-            color: Color::Black,
-            kind: Kind::Rook,
-        });
-        state.board[Square::new(7, 7).unwrap().index()] = Some(Piece {
-            color: Color::Black,
-            kind: Kind::King,
-        });
-
-        let selected =
-            transition(state, ChessAction::Square(Square::new(4, 0).unwrap().0)).unwrap();
+        state.board = "3r2k1/8/8/8/8/8/8/4K3 w - - 0 1".parse().unwrap();
+        let selected = transition(state, ChessAction::Square(square("e1").0)).unwrap();
         assert_eq!(
-            transition(selected, ChessAction::Square(Square::new(4, 1).unwrap().0)),
+            transition(selected, ChessAction::Square(square("d2").0)),
             Err("illegal move")
         );
+    }
+
+    #[test]
+    fn castling_and_en_passant_are_delegated_to_the_rules_engine() {
+        let mut state = ChessState::new(None);
+        state.board = "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1".parse().unwrap();
+        let state = play(state, "e1", "g1");
+        assert_eq!(
+            state.board.piece_on(EngineSquare::G1),
+            Some(EnginePiece::King)
+        );
+        assert_eq!(
+            state.board.piece_on(EngineSquare::F1),
+            Some(EnginePiece::Rook)
+        );
+
+        let state = play(ChessState::new(None), "e2", "e4");
+        let state = play(state, "a7", "a6");
+        let state = play(state, "e4", "e5");
+        let state = play(state, "d7", "d5");
+        let state = play(state, "e5", "d6");
+        assert_eq!(
+            state.board.piece_on(EngineSquare::D6),
+            Some(EnginePiece::Pawn)
+        );
+        assert_eq!(state.board.piece_on(EngineSquare::D5), None);
     }
 }

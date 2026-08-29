@@ -322,7 +322,8 @@ The runtime should provide a safe default empty acknowledgement and allow an
 explicit toast or alert result.
 
 The callback dispatcher and automatic ACK path remain application-owned in the
-core MVP. `examples/chess.rs` demonstrates the intended safe ordering: it sends
+core MVP. The separate `teloxide-ui-chess` application demonstrates the
+intended safe ordering: it sends
 the empty ACK through the shared outbound queue before resolving the action or
 starting projection.
 

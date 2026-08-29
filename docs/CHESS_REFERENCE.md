@@ -1,6 +1,9 @@
 # Chess reference application
 
-`examples/chess.rs` is the first application built on top of `teloxide-ui`.
+`crates/teloxide-ui-chess` is the first application built on top of
+`teloxide-ui`. It is a separate workspace package: chess rules, game state,
+emoji palette, and the Telegram bot entry point do not belong to the UI
+runtime.
 It reproduces the important interaction model of Telegram's Rich Message
 chess demonstration: one message contains the board, every enabled cell is a
 native Rich Message button, a click arrives as a callback, and the bot edits
@@ -37,11 +40,12 @@ never encoded in callback data or button labels. Two callbacks racing on one
 revision are resolved by `UiStore::compare_and_set`; only the winner projects
 that revision.
 
-The current game rules are deliberately MVP-sized: normal piece movement,
-captures, pawn promotion to a queen, turn ownership, king-safety validation,
-check, checkmate/stalemate detection, and reset. Castling, en passant, draw
-rules, and multi-player matchmaking are follow-up application work, not
-UI-runtime primitives.
+The application delegates chess legality and game status to
+[`cozy-chess`](https://github.com/analog-hors/cozy-chess). This covers normal
+piece movement, captures, promotion, castling, en passant, king safety,
+check, checkmate/stalemate detection, and draw rules. The rules engine remains
+an application dependency; none of these domain rules are part of the
+UI-runtime crate.
 
 ## Run it
 
@@ -50,7 +54,7 @@ in the `TELOXIDE_TOKEN` environment variable:
 
 ```bash
 export TELOXIDE_TOKEN="$(< /path/to/telegram-token.txt)"
-cargo run --example chess
+cargo run -p teloxide-ui-chess
 ```
 
 Open the bot in Telegram and send `/chess`. Use a current Telegram client with
@@ -71,9 +75,9 @@ The board is a compact, non-striped Rich Message table. The eight board rows
 and eight board columns use native header-cell backgrounds for light squares;
 dark squares are ordinary cells. This is the important spacing detail from
 the reference: the checkerboard is made from adjacent table cells, not from
-64 inline full-cell emoji buttons. Rank labels are rendered on both sides of
-the board, and file labels are rendered above and below it. The projection
-order is board, turn status, move history, and controls, matching the
+64 inline full-cell emoji buttons. Rank labels are rendered on the left and
+file labels above and below it, matching the current compact projection. The
+projection order is board, turn status, move history, and controls, matching the
 reference.
 Coordinate gutters, board flipping, undo, finish, and new-game controls are
 part of the projection. The view marks the selected piece and

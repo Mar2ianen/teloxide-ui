@@ -29,4 +29,6 @@ src/node.rs
 src/render.rs
 src/surface.rs
 src/store.rs
-examples/chess.rs
+crates/teloxide-ui-chess/Cargo.toml
+crates/teloxide-ui-chess/README.md
+crates/teloxide-ui-chess/src/main.rs

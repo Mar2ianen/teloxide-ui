@@ -1,3 +1,7 @@
+[workspace]
+members = ["crates/teloxide-ui-chess"]
+resolver = "2"
+
 [package]
 name = "teloxide-ui"
 version = "0.0.0"

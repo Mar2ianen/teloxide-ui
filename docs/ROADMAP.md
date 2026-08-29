@@ -40,7 +40,7 @@ surface.
 - [x] per-surface outbound serial lane
 - [x] latest-wins pending projection admission
 - [ ] counter example
-- [x] chess reference example
+- [x] chess reference application in `crates/teloxide-ui-chess`
 
 The chess board is the first table primitive: it uses a compact, non-striped
 Rich Message table with native header-cell backgrounds for light squares and
@@ -48,13 +48,13 @@ ordinary table backgrounds for dark squares. Transparent flat custom emoji
 provide pieces and move markers, while buttons remain available for occupied
 or actionable cells. Keeping the checkerboard in the table cells is what
 makes adjacent cells touch like the reference; full-cell emoji remain an
-alternate experiment. The board includes coordinate gutters on all four
-sides, while the broader table component API (spanning, captions, and
-reusable table components) remains Phase 4 work.
+alternate experiment. The board includes file labels above and below and a
+left rank gutter, while the broader table component API (spanning, captions,
+and reusable table components) remains Phase 4 work.
 
 Phase 1 exit condition: rapid concurrent chess clicks cannot produce an older
 visible board after a newer committed state. The current worker proves the
-surface queue boundary and `examples/chess.rs` exercises the end-to-end
+surface queue boundary and `crates/teloxide-ui-chess` exercises the end-to-end
 application flow. A dedicated concurrent Telegram projection test remains
 follow-up work.
 
