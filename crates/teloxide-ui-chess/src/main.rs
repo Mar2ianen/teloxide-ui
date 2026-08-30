@@ -24,8 +24,9 @@ use teloxide::{
     Bot,
 };
 use teloxide_ui::{
-    ActionRegistry, ActorPolicy, ButtonLabel, InMemoryUiStore, RenderContext, Revision,
-    RichRenderer, StalePolicy, Surface, SurfaceWorker, TableCell, Ui, UiStore, ViewId, ViewRecord,
+    ActionRegistry, ActorPolicy, ButtonLabel, InMemoryUiStore, RenderContext, ReplacementError,
+    Revision, RichRenderer, StalePolicy, Surface, SurfaceWorker, TableCell, Ui, UiStore, ViewId,
+    ViewRecord,
 };
 
 type HandlerError = Box<dyn Error + Send + Sync>;
@@ -442,6 +443,53 @@ impl ChessApp {
         Some(*flipped)
     }
 
+    fn replace_surface(&self, old_surface: &Surface, new_surface: Surface, view_id: ViewId) {
+        let mut views = self
+            .views
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if views.get(old_surface).copied() == Some(view_id) {
+            views.remove(old_surface);
+        }
+        views.insert(new_surface.clone(), view_id);
+        drop(views);
+
+        let mut flips = self
+            .surface_flips
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let flipped = flips.remove(old_surface).unwrap_or(false);
+        flips.insert(new_surface, flipped);
+    }
+
+    async fn project_rendered(
+        &self,
+        surface: Surface,
+        view_id: ViewId,
+        revision: Revision,
+        rich_message: teloxide::types::InputRichMessage,
+    ) -> Result<(), HandlerError> {
+        if matches!(surface, Surface::Message { .. }) {
+            match self
+                .worker
+                .replace_message(surface.clone(), revision, rich_message)
+                .await
+            {
+                Ok(receipt) => {
+                    self.replace_surface(&surface, receipt.surface, view_id);
+                }
+                Err(ReplacementError::Delete { receipt, source }) => {
+                    self.replace_surface(&surface, receipt.surface, view_id);
+                    eprintln!("new chess surface sent but old surface cleanup failed: {source}");
+                }
+                Err(error) => return Err(error.into()),
+            }
+        } else {
+            self.worker.project(surface, revision, rich_message).await?;
+        }
+        Ok(())
+    }
+
     async fn project_record(&self, record: &ViewRecord<ChessState>) -> Result<(), HandlerError> {
         let palette = self.emoji_palette();
         for (surface, flipped) in self.surfaces_for(record.id) {
@@ -453,8 +501,7 @@ impl ChessApp {
                 &palette,
                 flipped,
             )?;
-            self.worker
-                .project(surface, record.revision, rendered.rich_message)
+            self.project_rendered(surface, record.id, record.revision, rendered.rich_message)
                 .await?;
         }
         Ok(())
@@ -475,8 +522,7 @@ impl ChessApp {
             &palette,
             flipped,
         )?;
-        self.worker
-            .project(surface, record.revision, rendered.rich_message)
+        self.project_rendered(surface, record.id, record.revision, rendered.rich_message)
             .await?;
         Ok(())
     }

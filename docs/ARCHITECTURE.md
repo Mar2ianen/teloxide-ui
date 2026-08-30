@@ -232,6 +232,22 @@ The MVP implements all three address forms above. `SurfaceWorker` allocates one
 teloxide serial lane and one latest-wins coalescing key per surface. It does not
 own a second rate limiter, transport client, or durable outbox.
 
+For regular `Message` surfaces, `SurfaceWorker::replace_message` is available
+when the representation contains Telegram custom emoji. The current Bot API
+accepts a Rich Message edit but normalizes custom-emoji objects to their
+alternative text on that edit path. Replacement therefore sends the complete
+new Rich Message, then deletes the old message, and returns the new surface.
+The application must make that returned surface authoritative for subsequent
+callbacks and projections. If deletion fails after the send succeeds, the
+replacement receipt is still returned in the error so the application can
+retain the new message and report cleanup separately. Ephemeral and inline
+surfaces continue to use their corresponding edit methods.
+
+Replacement is a projection concern, not a domain transition: state is
+committed once, and a failed delete never rolls that state back. Both network
+operations use the same per-surface teloxide lane; no state lock is held while
+either request is running.
+
 ### Surface ordering invariant
 
 For a surface with desired revisions:

@@ -278,7 +278,9 @@ The first application on top of the kit is the separate
 [`teloxide-ui-chess`](crates/teloxide-ui-chess/) package.
 It renders an 8×8 board as Rich Message button rows, stores the board on the
 server, acknowledges callbacks before projection, and edits one Telegram
-message through `SurfaceWorker`. The complete runbook and deliberate MVP rule
+message through `SurfaceWorker` (regular custom-emoji messages are replaced
+atomically because Telegram's edit path drops their custom-emoji metadata).
+The complete runbook and deliberate MVP rule
 scope are in [`docs/CHESS_REFERENCE.md`](docs/CHESS_REFERENCE.md). Every cell
 is a stable action target with a transparent overlay, so native table geometry
 does not change during selection; legal moves are calculated from the

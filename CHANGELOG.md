@@ -7,6 +7,10 @@ the first explicitly stabilized release.
 
 ## Unreleased
 
+- Preserve chess custom emoji across regular-message updates by replacing the
+  old Rich Message with a freshly sent projection before deleting the old
+  surface. Surface mappings now follow the replacement message id, while
+  delete failures remain visible without losing the new projection.
 - Fix chess custom-emoji metadata on the first state update: native selected,
   legal, and capture overlays now retain their declared `▫️` alternative text,
   while ordinary pieces keep the same metadata-matched palette in group and

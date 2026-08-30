@@ -35,4 +35,6 @@ pub use node::{
 };
 pub use render::{RenderContext, RenderError, RenderedRichMessage, RichRenderer};
 pub use store::{InMemoryUiStore, StoreError, UiStore, ViewRecord};
-pub use surface::{ProjectionError, ProjectionReceipt, QueueRequest, Surface, SurfaceWorker};
+pub use surface::{
+    ProjectionError, ProjectionReceipt, QueueRequest, ReplacementError, Surface, SurfaceWorker,
+};

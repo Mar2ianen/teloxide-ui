@@ -61,6 +61,53 @@ pub enum ProjectionError<E> {
     Transport(E),
 }
 
+/// Failure while replacing a regular message with a freshly sent Rich
+/// Message. The replacement receipt is retained when cleanup of the old
+/// message fails, because the new message is already the authoritative
+/// projection target in that case.
+#[derive(Debug)]
+pub enum ReplacementError<E> {
+    /// The new Rich Message could not be sent.
+    Send(ProjectionError<E>),
+    /// The new message exists, but deleting the old one failed.
+    Delete {
+        /// The new surface that callers must retain.
+        receipt: ProjectionReceipt,
+        /// The cleanup failure.
+        source: ProjectionError<E>,
+    },
+    /// Replacement was requested for a surface that has no regular message
+    /// identity.
+    Unsupported(Surface),
+}
+
+impl<E: fmt::Display> fmt::Display for ReplacementError<E> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Send(error) => write!(formatter, "replacement send failed: {error}"),
+            Self::Delete { source, .. } => {
+                write!(formatter, "replacement cleanup failed: {source}")
+            }
+            Self::Unsupported(surface) => {
+                write!(
+                    formatter,
+                    "surface replacement is unsupported for {surface:?}"
+                )
+            }
+        }
+    }
+}
+
+impl<E: std::error::Error + 'static> std::error::Error for ReplacementError<E> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Send(error) => Some(error),
+            Self::Delete { source, .. } => Some(source),
+            Self::Unsupported(_) => None,
+        }
+    }
+}
+
 impl<E: fmt::Display> fmt::Display for ProjectionError<E> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -165,6 +212,7 @@ where
         B::EditEphemeralMessageText: QueueRequest<Err = B::Err>,
     {
         let (lane, coalesce_key) = self.lane_for(&surface);
+        trace_surface("edit", &surface, revision);
         match surface.clone() {
             Surface::Message {
                 chat_id,
@@ -198,6 +246,106 @@ where
         Ok(ProjectionReceipt { surface, revision })
     }
 
+    /// Replaces a regular message with a newly sent Rich Message.
+    ///
+    /// Telegram currently accepts `rich_message` in `editMessageText`, but
+    /// normalizes custom-emoji objects to their fallback text while editing.
+    /// A chess board (and any other projection that relies on custom emoji)
+    /// therefore has to be sent as a new Rich Message. The old message is
+    /// deleted only after the replacement has been admitted and sent.
+    ///
+    /// Both requests are enqueued before the first one starts, so the shared
+    /// serial lane keeps the send/delete pair contiguous with respect to
+    /// later projections. No application state lock is held during either
+    /// network request.
+    pub async fn replace_message(
+        &self,
+        surface: Surface,
+        revision: Revision,
+        rich_message: InputRichMessage,
+    ) -> Result<ProjectionReceipt, ReplacementError<B::Err>>
+    where
+        B::SendRichMessage: QueueRequest<Err = B::Err>,
+        B::DeleteMessage: QueueRequest<Err = B::Err>,
+    {
+        let Surface::Message {
+            chat_id,
+            message_id,
+        } = surface.clone()
+        else {
+            return Err(ReplacementError::Unsupported(surface));
+        };
+
+        let (lane, coalesce_key) = self.lane_for(&surface);
+        trace_surface("replace/send", &surface, revision);
+        let send_request = self.bot.send_rich_message(chat_id, rich_message);
+        let delete_request = self.bot.delete_message(chat_id, message_id);
+
+        // Enqueue both parts of the replacement before awaiting either one.
+        // This prevents another projection from being inserted between the
+        // send and the cleanup request on this surface lane.
+        let send_metadata = send_request.outbound_metadata();
+        let delete_metadata = delete_request.outbound_metadata();
+        let send_scope = send_metadata.scope.clone();
+        let delete_scope = delete_metadata.scope.clone();
+        let send_acquire = lane.acquire_latest_wins(send_metadata, coalesce_key);
+        let delete_acquire = lane.acquire(delete_metadata);
+
+        let mut send_permit = send_acquire
+            .await
+            .map_err(|error| ReplacementError::Send(ProjectionError::Queue(error)))?;
+        send_permit.start();
+        let send_result = send_request.send().await;
+        let send_outcome = match &send_result {
+            Ok(_) => OutboundCompletion::Success,
+            Err(error) => match <B::SendRichMessage as QueueRequest>::retry_after_duration(error) {
+                Some(duration) => OutboundCompletion::RetryAfter {
+                    scope: send_scope,
+                    duration,
+                },
+                None => OutboundCompletion::Failed,
+            },
+        };
+        send_permit.complete_and_await(send_outcome).await;
+        let sent = send_result
+            .map_err(|error| ReplacementError::Send(ProjectionError::Transport(error)))?;
+
+        let replacement = ProjectionReceipt {
+            surface: Surface::Message {
+                chat_id,
+                message_id: sent.id,
+            },
+            revision,
+        };
+        trace_surface("replace/delete", &replacement.surface, revision);
+
+        let mut delete_permit = delete_acquire
+            .await
+            .map_err(|error| ReplacementError::Delete {
+                receipt: replacement.clone(),
+                source: ProjectionError::Queue(error),
+            })?;
+        delete_permit.start();
+        let delete_result = delete_request.send().await;
+        let delete_outcome = match &delete_result {
+            Ok(_) => OutboundCompletion::Success,
+            Err(error) => match <B::DeleteMessage as QueueRequest>::retry_after_duration(error) {
+                Some(duration) => OutboundCompletion::RetryAfter {
+                    scope: delete_scope,
+                    duration,
+                },
+                None => OutboundCompletion::Failed,
+            },
+        };
+        delete_permit.complete_and_await(delete_outcome).await;
+        self.transfer_lane(&surface, &replacement.surface);
+        delete_result.map_err(|error| ReplacementError::Delete {
+            receipt: replacement.clone(),
+            source: ProjectionError::Transport(error),
+        })?;
+        Ok(replacement)
+    }
+
     fn lane_for(&self, surface: &Surface) -> (OutboundLane, u64) {
         let mut lanes = self
             .lanes
@@ -208,6 +356,16 @@ where
             coalesce_key: self.next_coalesce_key.fetch_add(1, Ordering::Relaxed),
         });
         (entry.lane.clone(), entry.coalesce_key)
+    }
+
+    fn transfer_lane(&self, old_surface: &Surface, new_surface: &Surface) {
+        let mut lanes = self
+            .lanes
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(entry) = lanes.remove(old_surface) {
+            lanes.insert(new_surface.clone(), entry);
+        }
     }
 }
 
@@ -240,6 +398,12 @@ where
         }
     }
     result.map_err(ProjectionError::Transport).map(|_| ())
+}
+
+fn trace_surface(operation: &str, surface: &Surface, revision: Revision) {
+    if std::env::var_os("TELOXIDE_UI_TRACE").is_some() {
+        eprintln!("[teloxide-ui] {operation} surface={surface:?} revision={revision}");
+    }
 }
 
 #[cfg(test)]

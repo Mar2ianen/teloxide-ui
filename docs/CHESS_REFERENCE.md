@@ -7,7 +7,9 @@ runtime.
 It reproduces the important interaction model of Telegram's Rich Message
 chess demonstration: one message contains the board, every cell is a native
 Rich Message button, a click arrives as a callback, and the bot edits the same
-message with the next complete representation. The example uses a compact,
+message with the next complete representation. Regular messages are replaced
+with a fresh Rich Message during projection so custom-emoji pieces survive;
+targeted ephemeral messages still use the edit path. The example uses a compact,
 non-striped Rich Message table. Each board cell is an interactive table cell
 using a transparent overlay from
 [`teloxide_ui_chess_native_v2_by_testteloxideui_bot`](https://t.me/addemoji/teloxide_ui_chess_native_v2_by_testteloxideui_bot).
@@ -44,7 +46,8 @@ button click
   → answerCallbackQuery immediately (with a short rejection toast when invalid)
   → compare_and_set state transition
   → render new revision
-  → SurfaceWorker edits the same Message surface
+  → SurfaceWorker replaces the regular Message surface with a fresh Rich Message
+    (custom emoji is not preserved by the current edit path)
 ```
 
 The board is creator-bound when Telegram supplies a message author. State is
@@ -90,6 +93,15 @@ use the `@username` handle. Labels are bounded before rendering; if no player
 identity is available, the status falls back to `White to move` or
 `Black to move`. The piece labels keep the emoji fallbacks associated with the
 published custom-emoji set so Telegram accepts the Rich Message payload.
+
+Regular chess messages are replaced on each state projection rather than
+edited in place. This is required for the published custom-emoji piece set:
+the Bot API edit path currently preserves the visible fallback text but drops
+the custom-emoji object metadata. The worker sends the new complete board,
+deletes the previous message after the send succeeds, and the application
+transfers the callback/surface mapping to the new message id. A failed cleanup
+does not discard the already sent board. Targeted ephemeral boards retain
+their edit-in-place path.
 
 The engine path is configured with `STOCKFISH_PATH`. Search uses
 `STOCKFISH_MOVETIME_MS` (100–5000 ms, default 350) unless `STOCKFISH_DEPTH`
