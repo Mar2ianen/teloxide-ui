@@ -12,6 +12,7 @@ use teloxide::{
     errors::AsResponseParameters,
     payloads::{
         EditEphemeralMessageTextSetters, EditMessageTextInlineSetters, EditMessageTextSetters,
+        SendRichMessageSetters,
     },
     requests::{HasPayload, Payload, Request, Requester},
     types::{ChatId, InputRichMessage, MessageId, UserId},
@@ -278,7 +279,7 @@ where
 
         let (lane, coalesce_key) = self.lane_for(&surface);
         trace_surface("replace/send", &surface, revision);
-        let send_request = self.bot.send_rich_message(chat_id, rich_message);
+        let send_request = self.bot.send_rich_message(rich_message).chat_id(chat_id);
         let delete_request = self.bot.delete_message(chat_id, message_id);
 
         // Enqueue both parts of the replacement before awaiting either one.
