@@ -12,5 +12,5 @@ publish = false
 cozy-chess = "0.3.4"
 lazychess = "0.1.2"
 teloxide-ui = { path = "../.." }
-teloxide = { git = "https://github.com/Mar2ianen/teloxide-fork", rev = "a6092220", default-features = false, features = ["outbound", "ctrlc_handler", "rustls"] }
+teloxide = { git = "https://github.com/Mar2ianen/teloxide-fork", rev = "b78e6473a34837cd60ce335ceca0577b1c3afd2f", default-features = false, features = ["outbound", "ctrlc_handler", "rustls"] }
 tokio = { version = "1.39", default-features = false, features = ["macros", "rt-multi-thread", "sync", "time"] }
